@@ -711,4 +711,21 @@ public final class TransformTranslator {
     }
     return transform;
   }
+
+  /**
+   * Translator matches Dataflow transformation with the appropriate evaluator
+   */
+  public static class Translator implements SparkPipelineTranslator {
+
+    @Override
+    public boolean hasTranslation(Class<? extends PTransform<?, ?>> clazz) {
+      return hasTransformEvaluator(clazz);
+    }
+
+    @Override
+    public TransformEvaluator<? extends PTransform<?, ?>> translate(
+        Class<? extends PTransform<?, ?>> clazz) {
+      return getTransformEvaluator(clazz);
+    }
+  }
 }
