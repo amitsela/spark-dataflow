@@ -108,7 +108,7 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
 
       JavaSparkContext jsc = SparkContextFactory.getSparkContext(mOptions.getSparkMaster());
       EvaluationContext ctxt = new EvaluationContext(jsc, pipeline);
-      pipeline.traverseTopologically(new Evaluator(ctxt));
+      pipeline.traverseTopologically(new Evaluator(ctxt, new TransformTranslator.Translator()));
       ctxt.computeOutputs();
 
       LOG.info("Pipeline execution complete.");
@@ -136,13 +136,15 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
   private static final class Evaluator implements Pipeline.PipelineVisitor {
 
     private final EvaluationContext ctxt;
+    private final SparkPipelineTranslator translator;
 
     // Set upon entering a composite node which can be directly mapped to a single
     // TransformEvaluator.
     private TransformTreeNode currentTranslatedCompositeNode;
 
-    private Evaluator(EvaluationContext ctxt) {
+    private Evaluator(EvaluationContext ctxt, SparkPipelineTranslator translator) {
       this.ctxt = ctxt;
+      this.translator = translator;
     }
 
     /**
@@ -160,8 +162,10 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
         return;
       }
 
+      //noinspection unchecked
       if (node.getTransform() != null
-          && TransformTranslator.hasTransformEvaluator(node.getTransform().getClass())) {
+          && translator.hasTranslation(
+          (Class<? extends PTransform<?, ?>>) node.getTransform().getClass())) {
         LOG.info("Entering directly-translatable composite transform: '{}'",
             node.getFullName());
         LOG.debug("Composite transform class: '{}'", node.getTransform().getClass());
@@ -197,7 +201,8 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       PT transform = (PT) node.getTransform();
       @SuppressWarnings("unchecked")
       Class<PT> transformClass = (Class<PT>) (Class<?>) transform.getClass();
-      TransformEvaluator<PT> evaluator = TransformTranslator.getTransformEvaluator(transformClass);
+      @SuppressWarnings("unchecked") TransformEvaluator<PT> evaluator =
+          (TransformEvaluator<PT>) translator.translate(transformClass);
       LOG.info("Evaluating {}", transform);
       AppliedPTransform<PInput, POutput, PT> appliedTransform =
           AppliedPTransform.of(node.getFullName(), node.getInput(), node.getOutput(), transform);
