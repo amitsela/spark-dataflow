@@ -25,10 +25,18 @@ import com.google.cloud.dataflow.sdk.transforms.PTransform;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
+
+import com.cloudera.dataflow.spark.streaming.SparkStreamingPipelineOptions;
+import com.cloudera.dataflow.spark.streaming.StreamingEvaluationContext;
+import com.cloudera.dataflow.spark.streaming.StreamingTransformTranslator;
+
 import org.apache.spark.SparkException;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.streaming.Duration;
+import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 /**
  * The SparkPipelineRunner translate operations defined on a pipeline to a representation
@@ -50,6 +58,8 @@ import org.slf4j.LoggerFactory;
  * options.setSparkMaster("spark://host:port");
  * EvaluationResult result = SparkPipelineRunner.create(options).run(p);
  * }
+ *
+ * To create a Spark streaming pipeline runner use {@link SparkStreamingPipelineOptions}
  */
 public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> {
 
@@ -104,14 +114,25 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
   @Override
   public EvaluationResult run(Pipeline pipeline) {
     try {
+      // validate streaming configuration
+      if (mOptions.isStreaming() && !(mOptions instanceof SparkStreamingPipelineOptions)) {
+        throw new RuntimeException("A streaming job must be configured with " + SparkStreamingPipelineOptions.class
+                .getSimpleName() + ", found " + mOptions.getClass().getSimpleName());
+      }
       LOG.info("Executing pipeline using the SparkPipelineRunner.");
 
-      JavaSparkContext jsc = SparkContextFactory.getSparkContext(mOptions.getSparkMaster());
-      EvaluationContext ctxt = new EvaluationContext(jsc, pipeline);
-      pipeline.traverseTopologically(new Evaluator(ctxt, new TransformTranslator.Translator()));
+      JavaSparkContext jsc = SparkContextFactory.getSparkContext(mOptions.getSparkMaster(), mOptions.getAppName());
+      EvaluationContext ctxt = createEvaluationContext(mOptions, jsc, pipeline);
+      SparkPipelineTranslator translator = createTranslator(mOptions);
+      pipeline.traverseTopologically(new Evaluator(ctxt, translator));
       ctxt.computeOutputs();
 
-      LOG.info("Pipeline execution complete.");
+      if (mOptions.isStreaming()) {
+        LOG.info("Streaming pipeline construction complete. Starting execution..");
+        ((StreamingEvaluationContext) ctxt).getStreamingContext().start();
+      } else {
+        LOG.info("Pipeline execution complete.");
+      }
 
       return ctxt;
     } catch (Exception e) {
@@ -131,6 +152,26 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       // otherwise just wrap in a RuntimeException
       throw new RuntimeException(e);
     }
+  }
+
+  // create the proper translator
+  private SparkPipelineTranslator createTranslator(SparkPipelineOptions mOptions) {
+    SparkPipelineTranslator rddTranslator = new TransformTranslator.Translator();
+    if (!mOptions.isStreaming()) {
+      return rddTranslator;
+    }
+    return new StreamingTransformTranslator.Translator(rddTranslator);
+  }
+
+  // create the proper EvaluationContext
+  private EvaluationContext createEvaluationContext(SparkPipelineOptions mOptions,
+                                                    JavaSparkContext jsc, Pipeline pipeline) {
+    if (!mOptions.isStreaming()) {
+      return new EvaluationContext(jsc, pipeline);
+    }
+    SparkStreamingPipelineOptions streamingOptions = (SparkStreamingPipelineOptions) mOptions;
+    JavaStreamingContext jssc = new JavaStreamingContext(jsc, new Duration(streamingOptions.getBatchInterval()));
+    return new StreamingEvaluationContext(jsc, pipeline, jssc, streamingOptions.getTimeout());
   }
 
   private static final class Evaluator implements Pipeline.PipelineVisitor {
