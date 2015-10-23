@@ -6,6 +6,7 @@ import com.google.cloud.dataflow.sdk.transforms.PTransform;
 import com.google.cloud.dataflow.sdk.transforms.View;
 import com.google.cloud.dataflow.sdk.values.PCollection;
 import com.google.cloud.dataflow.sdk.values.PInput;
+import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
 import com.google.common.collect.Iterables;
 
@@ -124,6 +125,12 @@ public class StreamingEvaluationContext extends EvaluationContext {
 
   public JavaStreamingContext getStreamingContext() {
     return jssc;
+  }
+
+  // override in order to expose in package
+  @Override
+  protected <O extends POutput> O getOutput(PTransform<?, O> transform) {
+    return super.getOutput(transform);
   }
 
   @Override
