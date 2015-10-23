@@ -2,9 +2,9 @@ package com.cloudera.dataflow.spark.streaming;
 
 import com.google.api.client.util.Maps;
 import com.google.api.client.util.Sets;
+import com.google.cloud.dataflow.sdk.coders.Coder;
 import com.google.cloud.dataflow.sdk.io.AvroIO;
 import com.google.cloud.dataflow.sdk.io.TextIO;
-import com.google.cloud.dataflow.sdk.transforms.Create;
 import com.google.cloud.dataflow.sdk.transforms.Flatten;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
 import com.google.cloud.dataflow.sdk.transforms.View;
@@ -12,6 +12,7 @@ import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
 
 import com.cloudera.dataflow.hadoop.HadoopIO;
 import com.cloudera.dataflow.io.ConsoleIO;
+import com.cloudera.dataflow.io.Create;
 import com.cloudera.dataflow.spark.EvaluationContext;
 import com.cloudera.dataflow.spark.SparkPipelineTranslator;
 import com.cloudera.dataflow.spark.TransformEvaluator;
@@ -42,6 +43,17 @@ public final class StreamingTransformTranslator {
                 .getStream(transform);
         dStream.print(transform.getNum());
         ((StreamingEvaluationContext) context).setStream(transform, dStream);
+      }
+    };
+  }
+
+  private static <T> TransformEvaluator<Create.QueuedValues<T>> createFromQueue() {
+    return new TransformEvaluator<Create.QueuedValues<T>>() {
+      @Override
+      public void evaluate(Create.QueuedValues<T> transform, EvaluationContext context) {
+        Iterable<Iterable<T>> values = transform.getQueuedValues();
+        Coder<T> coder = ((StreamingEvaluationContext) context).getOutput(transform).getCoder();
+        ((StreamingEvaluationContext) context).setDStreamFromQueue(transform, values, coder);
       }
     };
   }
@@ -94,6 +106,7 @@ public final class StreamingTransformTranslator {
       .newHashMap();
   static {
     EVALUATORS.put(ConsoleIO.Write.Unbound.class, print());
+    EVALUATORS.put(Create.QueuedValues.class, createFromQueue());
   }
 
   private static final Set<Class<? extends PTransform>> UNSUPPORTTED_EVALUATORS = Sets
@@ -107,7 +120,6 @@ public final class StreamingTransformTranslator {
     UNSUPPORTTED_EVALUATORS.add(HadoopIO.Read.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(HadoopIO.Write.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(Flatten.FlattenPCollectionList.class);
-    UNSUPPORTTED_EVALUATORS.add(Create.Values.class);
     UNSUPPORTTED_EVALUATORS.add(View.AsSingleton.class);
     UNSUPPORTTED_EVALUATORS.add(View.AsIterable.class);
     UNSUPPORTTED_EVALUATORS.add(View.CreatePCollectionView.class);
