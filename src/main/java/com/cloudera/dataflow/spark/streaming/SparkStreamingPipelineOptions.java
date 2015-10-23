@@ -29,4 +29,8 @@ public interface SparkStreamingPipelineOptions extends SparkPipelineOptions {
   @Override
   @Default.Boolean(true)
   boolean isStreaming();
+
+  @Override
+  @Default.String("spark streaming dataflow pipeline job")
+  String getAppName();
 }
