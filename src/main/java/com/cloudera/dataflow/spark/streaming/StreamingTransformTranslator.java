@@ -99,7 +99,7 @@ public final class StreamingTransformTranslator {
   private static final Set<Class<? extends PTransform>> UNSUPPORTTED_EVALUATORS = Sets
       .newHashSet();
   static {
-    //TODO - -add support for the following
+    //TODO - add support for the following
     UNSUPPORTTED_EVALUATORS.add(TextIO.Read.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(TextIO.Write.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(AvroIO.Read.Bound.class);
