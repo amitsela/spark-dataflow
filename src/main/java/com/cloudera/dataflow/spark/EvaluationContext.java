@@ -56,7 +56,7 @@ public class EvaluationContext implements EvaluationResult {
   private final Set<PValue> multireads = new LinkedHashSet<>();
   private final Map<PValue, Object> pobjects = new LinkedHashMap<>();
   private final Map<PValue, Iterable<WindowedValue<?>>> pview = new LinkedHashMap<>();
-  private AppliedPTransform<?, ?, ?> currentTransform;
+  protected AppliedPTransform<?, ?, ?> currentTransform;
 
   public EvaluationContext(JavaSparkContext jsc, Pipeline pipeline) {
     this.jsc = jsc;
@@ -115,7 +115,7 @@ public class EvaluationContext implements EvaluationResult {
     return jsc;
   }
 
-  Pipeline getPipeline() {
+  protected Pipeline getPipeline() {
     return pipeline;
   }
 
@@ -123,11 +123,11 @@ public class EvaluationContext implements EvaluationResult {
     return runtime;
   }
 
-  void setCurrentTransform(AppliedPTransform<?, ?, ?> transform) {
+  protected void setCurrentTransform(AppliedPTransform<?, ?, ?> transform) {
     this.currentTransform = transform;
   }
 
-  <I extends PInput> I getInput(PTransform<I, ?> transform) {
+  protected <I extends PInput> I getInput(PTransform<I, ?> transform) {
     checkArgument(currentTransform != null && currentTransform.getTransform() == transform,
         "can only be called with current transform");
     @SuppressWarnings("unchecked")
@@ -135,7 +135,7 @@ public class EvaluationContext implements EvaluationResult {
     return input;
   }
 
-  <O extends POutput> O getOutput(PTransform<?, O> transform) {
+  protected <O extends POutput> O getOutput(PTransform<?, O> transform) {
     checkArgument(currentTransform != null && currentTransform.getTransform() == transform,
         "can only be called with current transform");
     @SuppressWarnings("unchecked")
@@ -147,7 +147,7 @@ public class EvaluationContext implements EvaluationResult {
     setRDD((PValue) getOutput(transform), rdd);
   }
 
-  <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
+  protected <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
       Coder<T> coder) {
     pcollections.put((PValue) getOutput(transform), new RDDHolder<>(values, coder));
   }
@@ -156,7 +156,7 @@ public class EvaluationContext implements EvaluationResult {
     pview.put(view, value);
   }
 
-  JavaRDDLike<?, ?> getRDD(PValue pvalue) {
+  protected JavaRDDLike<?, ?> getRDD(PValue pvalue) {
     RDDHolder<?> rddHolder = pcollections.get(pvalue);
     JavaRDDLike<?, ?> rdd = rddHolder.getRDD();
     leafRdds.remove(rddHolder);
@@ -169,7 +169,7 @@ public class EvaluationContext implements EvaluationResult {
     return rdd;
   }
 
-  <T> void setRDD(PValue pvalue, JavaRDDLike<T, ?> rdd) {
+  protected <T> void setRDD(PValue pvalue, JavaRDDLike<T, ?> rdd) {
     try {
       rdd.rdd().setName(pvalue.getName());
     } catch (IllegalStateException e) {
@@ -194,7 +194,7 @@ public class EvaluationContext implements EvaluationResult {
    * actions (like saving to a file) registered on them (i.e. they are performed for side
    * effects).
    */
-  void computeOutputs() {
+  protected void computeOutputs() {
     for (RDDHolder<?> rddHolder : leafRdds) {
       JavaRDDLike<?, ?> rdd = rddHolder.getRDD();
       rdd.rdd().cache(); // cache so that any subsequent get() is cheap
