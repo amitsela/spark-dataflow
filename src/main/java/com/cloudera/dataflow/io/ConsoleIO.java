@@ -3,6 +3,7 @@ package com.cloudera.dataflow.io;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
 import com.google.cloud.dataflow.sdk.util.WindowingStrategy;
 import com.google.cloud.dataflow.sdk.values.PCollection;
+import com.google.cloud.dataflow.sdk.values.PDone;
 import com.google.cloud.dataflow.sdk.values.PInput;
 
 /**
@@ -18,15 +19,15 @@ public final class ConsoleIO {
     private Write() {
     }
 
-    public static Unbound from() {
-      return new Unbound(10);
+    public static <T> Unbound<T> from() {
+      return new Unbound<>(10);
     }
 
-    public static Unbound from(int num) {
-      return new Unbound(num);
+    public static <T> Unbound<T> from(int num) {
+      return new Unbound<>(num);
     }
 
-    public static class Unbound extends PTransform<PInput, PCollection<Void>> {
+    public static class Unbound<T> extends PTransform<PCollection<T>, PDone> {
 
       private final int num;
 
@@ -39,10 +40,8 @@ public final class ConsoleIO {
       }
 
       @Override
-      public PCollection<Void> apply(PInput input) {
-        return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-                                                         WindowingStrategy.globalDefault(),
-                                                         PCollection.IsBounded.UNBOUNDED);
+      public PDone apply(PCollection<T> input) {
+        return PDone.in(input.getPipeline());
       }
     }
   }

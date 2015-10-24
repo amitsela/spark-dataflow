@@ -32,17 +32,11 @@ public final class StreamingTransformTranslator {
   private StreamingTransformTranslator() {
   }
 
-  private static TransformEvaluator<ConsoleIO.Write.Unbound> print() {
-    return new TransformEvaluator<ConsoleIO.Write.Unbound>() {
+  private static <T> TransformEvaluator<ConsoleIO.Write.Unbound<T>> print() {
+    return new TransformEvaluator<ConsoleIO.Write.Unbound<T>>() {
       @Override
       public void evaluate(ConsoleIO.Write.Unbound transform, EvaluationContext context) {
-        @SuppressWarnings("unchecked")
-        JavaDStreamLike<Object, ?, JavaRDD<Object>>
-            dStream =
-            (JavaDStreamLike<Object, ?, JavaRDD<Object>>) ((StreamingEvaluationContext) context)
-                .getStream(transform);
-        dStream.print(transform.getNum());
-        ((StreamingEvaluationContext) context).setStream(transform, dStream);
+        ((StreamingEvaluationContext) context).getStream(transform).print(transform.getNum());
       }
     };
   }
