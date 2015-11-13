@@ -8,11 +8,12 @@ import com.google.common.base.Preconditions;
 import com.cloudera.dataflow.spark.streaming.SparkStreamingWindowStrategy;
 
 /**
- * Created by amit on 10/13/15.
+ * Create an input stream from Queue
+ * @param <T> stream type
  */
-public final class Create<T> {
+public final class CreateStream<T> {
 
-  private Create() {
+  private CreateStream() {
   }
 
   public static <T> QueuedValues<T> fromQueue(Iterable<Iterable<T>> queuedValues, Long batchInterval) {
