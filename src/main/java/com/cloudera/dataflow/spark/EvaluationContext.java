@@ -111,7 +111,7 @@ public class EvaluationContext implements EvaluationResult {
     }
   }
 
-  JavaSparkContext getSparkContext() {
+  protected JavaSparkContext getSparkContext() {
     return jsc;
   }
 
@@ -125,6 +125,10 @@ public class EvaluationContext implements EvaluationResult {
 
   protected void setCurrentTransform(AppliedPTransform<?, ?, ?> transform) {
     this.currentTransform = transform;
+  }
+
+  protected AppliedPTransform<?, ?, ?> getCurrentTransform() {
+    return currentTransform;
   }
 
   protected <I extends PInput> I getInput(PTransform<I, ?> transform) {
@@ -143,17 +147,22 @@ public class EvaluationContext implements EvaluationResult {
     return output;
   }
 
-  <T> void setOutputRDD(PTransform<?, ?> transform, JavaRDDLike<T, ?> rdd) {
+  protected  <T> void setOutputRDD(PTransform<?, ?> transform, JavaRDDLike<T, ?> rdd) {
     setRDD((PValue) getOutput(transform), rdd);
   }
 
-  protected <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
+  protected  <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
       Coder<T> coder) {
     pcollections.put((PValue) getOutput(transform), new RDDHolder<>(values, coder));
   }
 
   void setPView(PValue view, Iterable<WindowedValue<?>> value) {
     pview.put(view, value);
+  }
+
+  protected boolean hasOutputRDD(PTransform<? extends PInput, ?> transform) {
+    PValue pvalue = (PValue) getOutput(transform);
+    return pcollections.containsKey(pvalue);
   }
 
   protected JavaRDDLike<?, ?> getRDD(PValue pvalue) {
