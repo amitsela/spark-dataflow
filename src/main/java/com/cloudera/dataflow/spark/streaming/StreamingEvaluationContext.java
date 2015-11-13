@@ -2,16 +2,13 @@ package com.cloudera.dataflow.spark.streaming;
 
 import com.google.cloud.dataflow.sdk.Pipeline;
 import com.google.cloud.dataflow.sdk.coders.Coder;
+import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
-import com.google.cloud.dataflow.sdk.transforms.View;
-import com.google.cloud.dataflow.sdk.values.PCollection;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
-import com.google.common.collect.Iterables;
 
 import com.cloudera.dataflow.spark.EvaluationContext;
-import com.cloudera.dataflow.spark.TransformTranslator;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaRDDLike;
@@ -47,17 +44,6 @@ public class StreamingEvaluationContext extends EvaluationContext {
   }
 
   /**
-   * Because stream processing is a continuous, recurring processing of micro batches - we need to provide a "snapshot" of the evaluation
-   * context with the appropriate "current transform"
-   */
-  public StreamingEvaluationContext recurringEvaluationContext() {
-    StreamingEvaluationContext context = new StreamingEvaluationContext(jssc.sparkContext(),
-                                                                        getPipeline(), jssc, timeout);
-    context.setCurrentTransform(this.currentTransform);
-    return context;
-  }
-
-  /**
    * DStream holder
    * Can also crate a DStream from a supplied queue of values, but mainly for testing
    */
@@ -85,6 +71,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
           setOutputRDDFromValues(currentTransform.getTransform(), v, coder);
           rddQueue.offer((JavaRDD<T>) getOutputRDD(currentTransform.getTransform()));
         }
+        // create dstream from queue, one at a time, no defaults
+        // mainly for unit test so no reason to have this configurable
         dStream = jssc.queueStream(rddQueue, true);
       }
       return dStream;
@@ -103,6 +91,11 @@ public class StreamingEvaluationContext extends EvaluationContext {
     DStreamHolder<T> dStreamHolder = new DStreamHolder((JavaDStream) dStream);
     pstreams.put(pvalue, dStreamHolder);
     leafStreams.add(dStreamHolder);
+  }
+
+  boolean hasStream(PTransform<?, ?> transform) {
+    PValue pvalue = (PValue) getInput(transform);
+    return pstreams.containsKey(pvalue);
   }
 
   public JavaDStreamLike<?, ?, ?> getStream(PTransform<?, ?> transform) {
@@ -127,21 +120,15 @@ public class StreamingEvaluationContext extends EvaluationContext {
     return jssc;
   }
 
-  // override in order to expose in package
-  @Override
-  protected <O extends POutput> O getOutput(PTransform<?, O> transform) {
-    return super.getOutput(transform);
-  }
-
   @Override
   protected void computeOutputs() {
     for (DStreamHolder<?> streamHolder : leafStreams) {
       @SuppressWarnings("unchecked")
       JavaDStream<Object> stream = (JavaDStream<Object>) streamHolder.getDStream();
-      //TODO - cache/persist ?
       stream.foreachRDD(new Function<JavaRDD<Object>, Void>() {
         @Override
         public Void call(JavaRDD<Object> rdd) throws Exception {
+          rdd.rdd().cache();
           rdd.count();
           return null;
         }
@@ -156,8 +143,53 @@ public class StreamingEvaluationContext extends EvaluationContext {
     } else {
       jssc.awaitTermination();
     }
-    //TODO - stop gracefully ?
+    //TODO: stop gracefully ?
     jssc.stop(false, false);
+    state = State.DONE;
     super.close();
+  }
+
+  private State state = State.RUNNING;
+
+  @Override
+  public State getState() {
+    return state;
+  }
+
+  //---------------- override in order to expose in package
+  @Override
+  protected <O extends POutput> O getOutput(PTransform<?, O> transform) {
+    return super.getOutput(transform);
+  }
+
+  @Override
+  protected JavaSparkContext getSparkContext() {
+    return super.getSparkContext();
+  }
+
+  @Override
+  protected void setCurrentTransform(AppliedPTransform<?, ?, ?> transform) {
+    super.setCurrentTransform(transform);
+  }
+
+  @Override
+  protected AppliedPTransform<?, ?, ?> getCurrentTransform() {
+    return super.getCurrentTransform();
+  }
+
+  @Override
+  protected <T> void setOutputRDD(PTransform<?, ?> transform, JavaRDDLike<T, ?> rdd) {
+    super.setOutputRDD(transform, rdd);
+  }
+
+  @Override
+  protected <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
+                                            Coder<T> coder) {
+    super.setOutputRDDFromValues(transform, values, coder);
+  }
+
+  @Override
+  protected boolean hasOutputRDD(PTransform<? extends PInput, ?> transform) {
+    return super.hasOutputRDD(transform);
   }
 }
