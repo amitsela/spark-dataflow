@@ -11,7 +11,7 @@ import com.cloudera.dataflow.spark.SparkPipelineOptions;
 public interface SparkStreamingPipelineOptions extends SparkPipelineOptions {
 
   @Override
-  @Default.String("local[*]")
+  @Default.String("local[1]")
   String getSparkMaster();
 
   @Description("The time interval (in msec) at which streaming data will be divided into batches")
