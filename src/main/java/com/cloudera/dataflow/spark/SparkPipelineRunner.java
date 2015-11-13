@@ -121,7 +121,7 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       }
       LOG.info("Executing pipeline using the SparkPipelineRunner.");
 
-      JavaSparkContext jsc = SparkContextFactory.getSparkContext(mOptions.getSparkMaster(), mOptions.getAppName());
+      final JavaSparkContext jsc = SparkContextFactory.getSparkContext(mOptions.getSparkMaster(), mOptions.getAppName());
       EvaluationContext ctxt = createEvaluationContext(mOptions, jsc, pipeline);
       SparkPipelineTranslator translator = createTranslator(mOptions);
       pipeline.traverseTopologically(new Evaluator(ctxt, translator));
@@ -170,7 +170,7 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       return new EvaluationContext(jsc, pipeline);
     }
     SparkStreamingPipelineOptions streamingOptions = (SparkStreamingPipelineOptions) mOptions;
-    JavaStreamingContext jssc = new JavaStreamingContext(jsc, new Duration(streamingOptions.getBatchInterval()));
+    final JavaStreamingContext jssc = new JavaStreamingContext(jsc, new Duration(streamingOptions.getBatchInterval()));
     return new StreamingEvaluationContext(jsc, pipeline, jssc, streamingOptions.getTimeout());
   }
 
