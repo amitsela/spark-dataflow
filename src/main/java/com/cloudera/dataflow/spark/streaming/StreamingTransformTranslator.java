@@ -91,27 +91,39 @@ public final class StreamingTransformTranslator {
   private static <PT extends PTransform<?, ?>> TransformEvaluator<PT> rddTransform(
       final SparkPipelineTranslator rddTranslator) {
     return new TransformEvaluator<PT>() {
+      @SuppressWarnings("unchecked")
       @Override
       public void evaluate(final PT transform,
                            final EvaluationContext context) {
-        StreamingEvaluationContext recurringContext = ((StreamingEvaluationContext) context).recurringEvaluationContext();
-        @SuppressWarnings("unchecked")
         final TransformEvaluator
-            rddEvaluator = rddTranslator.translate((Class<? extends PTransform<?, ?>>) transform.getClass());
-        @SuppressWarnings("unchecked")
-        JavaDStreamLike<Object, ?, JavaRDD<Object>> dStream = (JavaDStreamLike<Object, ?, JavaRDD<Object>>) ((StreamingEvaluationContext) context)
-                .getStream(transform);
-        ((StreamingEvaluationContext) context).setStream(transform, dStream
-            .transform(new RDDTransform<>(recurringContext, rddEvaluator,
-                                          transform)));
+            rddEvaluator = rddTranslator.translate(
+            (Class<? extends PTransform<?, ?>>) transform.getClass());
+        if (((StreamingEvaluationContext) context).hasStream(transform)) {
+          JavaDStreamLike<Object, ?, JavaRDD<Object>>
+              dStream =
+              (JavaDStreamLike<Object, ?, JavaRDD<Object>>) ((StreamingEvaluationContext) context)
+                  .getStream(transform);
+          ((StreamingEvaluationContext) context).setStream(transform, dStream
+              .transform(new RDDTransform<>((StreamingEvaluationContext) context, rddEvaluator,
+                                            transform)));
+        } else {
+          // if the transformation requires direct access to RDD (not in stream)
+          rddEvaluator.evaluate(transform, context);
+        }
       }
     };
   }
 
+  /**
+   * RDD transform function
+   * If the transformation function doesn't have an input, create a fake one as an empty RDD
+   * @param <PT> PTransform type
+   */
   private static final class RDDTransform<PT extends PTransform<?, ?>>
       implements Function<JavaRDD<Object>, JavaRDD<Object>> {
 
     private final StreamingEvaluationContext context;
+    private final AppliedPTransform<?, ?, ?> appliedPTransform;
     private final TransformEvaluator rddEvaluator;
     private final PT transform;
 
@@ -119,6 +131,7 @@ public final class StreamingTransformTranslator {
     private RDDTransform(StreamingEvaluationContext context,
                          TransformEvaluator rddEvaluator, PT transform) {
       this.context = context;
+      this.appliedPTransform = context.getCurrentTransform();
       this.rddEvaluator = rddEvaluator;
       this.transform = transform;
     }
@@ -126,9 +139,75 @@ public final class StreamingTransformTranslator {
     @Override
     @SuppressWarnings("unchecked")
     public JavaRDD<Object> call(JavaRDD<Object> rdd) throws Exception {
+      AppliedPTransform<?, ?, ?> existingAPT = context.getCurrentTransform();
+      context.setCurrentTransform(appliedPTransform);
       context.setInputRDD(transform, rdd);
       rddEvaluator.evaluate(transform, context);
-      return (JavaRDD<Object>) context.getOutputRDD(transform);
+      if (!context.hasOutputRDD(transform)) {
+        // fake RDD as output
+        context.setOutputRDD(transform, context.getSparkContext().emptyRDD());
+      }
+      JavaRDD<Object> outRDD = (JavaRDD<Object>) context.getOutputRDD(transform);
+      context.setCurrentTransform(existingAPT);
+      return outRDD;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <PT extends PTransform<?, ?>> TransformEvaluator<PT> foreachRDD(
+      final SparkPipelineTranslator rddTranslator) {
+    return new TransformEvaluator<PT>() {
+      @Override
+      public void evaluate(final PT transform,
+                           final EvaluationContext context) {
+        final TransformEvaluator
+            rddEvaluator = rddTranslator.translate(
+            (Class<? extends PTransform<?, ?>>) transform.getClass());
+        if (((StreamingEvaluationContext) context).hasStream(transform)) {
+          JavaDStreamLike<Object, ?, JavaRDD<Object>>
+              dStream =
+              (JavaDStreamLike<Object, ?, JavaRDD<Object>>) ((StreamingEvaluationContext) context)
+                  .getStream(transform);
+          dStream.foreachRDD(
+              new RDDOutputOperator<>((StreamingEvaluationContext) context, rddEvaluator,
+                                      transform));
+        } else {
+          rddEvaluator.evaluate(transform, context);
+        }
+      }
+    };
+  }
+
+  /**
+   * RDD output function
+   * @param <PT> PTransform type
+   */
+  private static final class RDDOutputOperator<PT extends PTransform<?, ?>>
+      implements Function<JavaRDD<Object>, Void> {
+
+    private final StreamingEvaluationContext context;
+    private final AppliedPTransform<?, ?, ?> appliedPTransform;
+    private final TransformEvaluator rddEvaluator;
+    private final PT transform;
+
+
+    private RDDOutputOperator(StreamingEvaluationContext context,
+                         TransformEvaluator rddEvaluator, PT transform) {
+      this.context = context;
+      this.appliedPTransform = context.getCurrentTransform();
+      this.rddEvaluator = rddEvaluator;
+      this.transform = transform;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Void call(JavaRDD<Object> rdd) throws Exception {
+      AppliedPTransform<?, ?, ?> existingAPT = context.getCurrentTransform();
+      context.setCurrentTransform(appliedPTransform);
+      context.setInputRDD(transform, rdd);
+      rddEvaluator.evaluate(transform, context);
+      context.setCurrentTransform(existingAPT);
+      return null;
     }
   }
 
@@ -136,7 +215,8 @@ public final class StreamingTransformTranslator {
       .newHashMap();
   static {
     EVALUATORS.put(ConsoleIO.Write.Unbound.class, print());
-    EVALUATORS.put(Create.QueuedValues.class, createFromQueue());
+    EVALUATORS.put(CreateStream.QueuedValues.class, createFromQueue());
+    EVALUATORS.put(Create.Values.class, create());
   }
 
   private static final Set<Class<? extends PTransform>> UNSUPPORTTED_EVALUATORS = Sets
