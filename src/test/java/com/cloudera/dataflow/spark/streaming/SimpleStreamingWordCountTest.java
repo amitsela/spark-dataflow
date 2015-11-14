@@ -23,18 +23,21 @@ public class SimpleStreamingWordCountTest {
   private static final String[] WORDS_ARRAY = {
       "hi there", "hi", "hi sue bob",
       "hi sue", "", "bob hi"};
-  private static final List<String> WORDS = Arrays.asList(WORDS_ARRAY);
-  private static final List<Iterable<String>> WORDS_QUEUE = Collections.<Iterable<String>>singletonList(WORDS);
+  private static final List<Iterable<String>>
+      WORDS_QUEUE =
+      Collections.<Iterable<String>>singletonList(
+          Arrays.asList(WORDS_ARRAY));
   private static final Set<String> EXPECTED_COUNT_SET =
       ImmutableSet.of("hi: 5", "there: 1", "sue: 2", "bob: 2");
+  final long TEST_INTERVAL_MSEC = 1000L;
 
   @Test
   public void testRun() throws Exception {
     SparkStreamingPipelineOptions options = SparkStreamingPipelineOptionsFactory.create();
     options.setAppName(this.getClass().getSimpleName());
     options.setRunner(SparkPipelineRunner.class);
-    options.setBatchInterval(1000L);
-    options.setTimeout(1000L);// run for one interval
+    options.setBatchInterval(TEST_INTERVAL_MSEC);
+    options.setTimeout(TEST_INTERVAL_MSEC);// run for one interval
     Pipeline p = Pipeline.create(options);
 
     PCollection<String> inputWords =
@@ -43,6 +46,7 @@ public class SimpleStreamingWordCountTest {
 
     PCollection<String> output = inputWords.apply(new SimpleWordCountTest.CountWords());
 
+    //TODO: fail unit test if assert failed - CheckerDoFn doesn't propagate the assert failure for streaming pipelines
     DataflowAssert.that(output).containsInAnyOrder(EXPECTED_COUNT_SET);
 
     EvaluationResult res = SparkPipelineRunner.create(options).run(p);
