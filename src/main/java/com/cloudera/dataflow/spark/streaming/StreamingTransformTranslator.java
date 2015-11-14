@@ -3,16 +3,19 @@ package com.cloudera.dataflow.spark.streaming;
 import com.google.api.client.util.Maps;
 import com.google.api.client.util.Sets;
 import com.google.cloud.dataflow.sdk.coders.Coder;
+import com.google.cloud.dataflow.sdk.coders.VoidCoder;
 import com.google.cloud.dataflow.sdk.io.AvroIO;
 import com.google.cloud.dataflow.sdk.io.TextIO;
+import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
+import com.google.cloud.dataflow.sdk.transforms.Create;
 import com.google.cloud.dataflow.sdk.transforms.Flatten;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
-import com.google.cloud.dataflow.sdk.transforms.View;
-import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
+import com.google.cloud.dataflow.sdk.values.PDone;
 
+import com.clearspring.analytics.util.Lists;
 import com.cloudera.dataflow.hadoop.HadoopIO;
 import com.cloudera.dataflow.io.ConsoleIO;
-import com.cloudera.dataflow.io.Create;
+import com.cloudera.dataflow.io.CreateStream;
 import com.cloudera.dataflow.spark.EvaluationContext;
 import com.cloudera.dataflow.spark.SparkPipelineTranslator;
 import com.cloudera.dataflow.spark.TransformEvaluator;
@@ -21,11 +24,20 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.streaming.api.java.JavaDStreamLike;
 
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
+
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import scala.Tuple2;
+
 /**
- * Supports translation between a DataFlow rddTransform, and Spark's operations on DStreams.
+ * Supports translation between a DataFlow transform, and Spark's operations on DStreams.
  */
 public final class StreamingTransformTranslator {
 
@@ -41,10 +53,34 @@ public final class StreamingTransformTranslator {
     };
   }
 
-  private static <T> TransformEvaluator<Create.QueuedValues<T>> createFromQueue() {
-    return new TransformEvaluator<Create.QueuedValues<T>>() {
+  private static <T> TransformEvaluator<com.google.cloud.dataflow.sdk.transforms.Create.Values<T>> create() {
+    return new TransformEvaluator<com.google.cloud.dataflow.sdk.transforms.Create.Values<T>>() {
+      @SuppressWarnings("unchecked")
       @Override
-      public void evaluate(Create.QueuedValues<T> transform, EvaluationContext context) {
+      public void evaluate(com.google.cloud.dataflow.sdk.transforms.Create.Values<T> transform, EvaluationContext context) {
+        Iterable<T> elems = transform.getElements();
+        Coder<T> coder = ((StreamingEvaluationContext) context).getOutput(transform).getCoder();
+        if (coder != VoidCoder.of()) {
+          // actual create
+          ((StreamingEvaluationContext) context).setOutputRDDFromValues(transform, elems, coder);
+        } else {
+          // fake create as an input
+          // creates a stream with a single batch containing a single null element
+          // to invoke following transformations once
+          // to support DataflowAssert
+          ((StreamingEvaluationContext) context).setDStreamFromQueue(transform, Collections.<Iterable<Void>>singletonList(
+                                                                         Collections.singletonList(
+                                                                             (Void) null)),
+                                                                     (Coder<Void>) coder);
+        }
+      }
+    };
+  }
+
+  private static <T> TransformEvaluator<CreateStream.QueuedValues<T>> createFromQueue() {
+    return new TransformEvaluator<CreateStream.QueuedValues<T>>() {
+      @Override
+      public void evaluate(CreateStream.QueuedValues<T> transform, EvaluationContext context) {
         Iterable<Iterable<T>> values = transform.getQueuedValues();
         Coder<T> coder = ((StreamingEvaluationContext) context).getOutput(transform).getCoder();
         ((StreamingEvaluationContext) context).setDStreamFromQueue(transform, values, coder);
