@@ -230,33 +230,48 @@ public final class StreamingTransformTranslator {
     UNSUPPORTTED_EVALUATORS.add(HadoopIO.Read.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(HadoopIO.Write.Bound.class);
     UNSUPPORTTED_EVALUATORS.add(Flatten.FlattenPCollectionList.class);
-    UNSUPPORTTED_EVALUATORS.add(View.AsSingleton.class);
-    UNSUPPORTTED_EVALUATORS.add(View.AsIterable.class);
-    UNSUPPORTTED_EVALUATORS.add(View.CreatePCollectionView.class);
-    UNSUPPORTTED_EVALUATORS.add(Window.Bound.class);
   }
 
   private static <PT extends PTransform<?, ?>> boolean hasTransformEvaluator(Class<PT> clazz) {
     return EVALUATORS.containsKey(clazz);
   }
 
+  @SuppressWarnings("unchecked")
   private static <PT extends PTransform<?, ?>> TransformEvaluator<PT> getTransformEvaluator(Class<PT>
                                                    clazz, SparkPipelineTranslator rddTranslator) {
-    @SuppressWarnings("unchecked")
     TransformEvaluator<PT> transform = (TransformEvaluator<PT>) EVALUATORS.get(clazz);
     if (transform == null) {
       if (UNSUPPORTTED_EVALUATORS.contains(clazz)) {
-        throw new UnsupportedOperationException("Dataflow transformation " + clazz.getSimpleName()
+        throw new UnsupportedOperationException("Dataflow transformation " + clazz.getCanonicalName()
                                                 + " is currently unsupported by the Spark streaming pipeline");
       }
-      return rddTransform(rddTranslator);
+      // DStream transformations will transform an RDD into another RDD
+      // Actions will create output
+      // In Dataflow it depends on the PTranform's Input and Output class
+      Class PTOutputClazz = getPTransformInputOutput(clazz)._2();
+      if (PTOutputClazz == PDone.class) {
+        return foreachRDD(rddTranslator);
+      } else {
+        return rddTransform(rddTranslator);
+      }
     }
     return transform;
   }
 
+  private static <PT extends PTransform<?, ?>> Tuple2<Class, Class> getPTransformInputOutput(Class<PT> clazz) {
+    Type[] types = ((ParameterizedType) clazz.getGenericSuperclass()).getActualTypeArguments();
+    List<Class> clazzList = Lists.newArrayList();
+    for (Type type: types) {
+      Class c =
+          type instanceof ParameterizedTypeImpl ? ((ParameterizedTypeImpl) type).getRawType() : (Class) type;
+      clazzList.add(c);
+    }
+    return new Tuple2<>(clazzList.get(0), clazzList.get(1));
+  }
+
   /**
    * Translator matches Dataflow transformation with the appropriate Spark streaming evaluator
-   * rddTranslator uses Spark evaluators in foreachRDD to evaluate the transformation
+   * rddTranslator uses Spark evaluators in transform/foreachRDD to evaluate the transformation
    */
   public static class Translator implements SparkPipelineTranslator {
 
