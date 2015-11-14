@@ -16,6 +16,14 @@ public final class CreateStream<T> {
   private CreateStream() {
   }
 
+  /**
+   * Define the input stream to create from queue
+   *
+   * @param queuedValues defines the input stream
+   * @param batchInterval Spark streaming batch interval
+   * @param <T> stream type
+   * @return the queue that defines the input stream
+   */
   public static <T> QueuedValues<T> fromQueue(Iterable<Iterable<T>> queuedValues, Long batchInterval) {
     return new QueuedValues<>(queuedValues, batchInterval);
   }
@@ -40,6 +48,7 @@ public final class CreateStream<T> {
 
     @Override
     public PCollection<T> apply(PInput input) {
+      // Spark streaming micro batches are bounded by default
       return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
                                                        SparkStreamingWindowStrategy
                                                            .getWindowStrategy(batchInterval),
