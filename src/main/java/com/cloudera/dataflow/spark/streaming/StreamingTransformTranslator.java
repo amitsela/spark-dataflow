@@ -1,5 +1,6 @@
 package com.cloudera.dataflow.spark.streaming;
 
+import com.cloudera.dataflow.io.KafkaIO;
 import com.google.api.client.util.Maps;
 import com.google.api.client.util.Sets;
 import com.google.cloud.dataflow.sdk.coders.Coder;
@@ -28,7 +29,6 @@ import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +108,7 @@ public final class StreamingTransformTranslator {
                                             transform)));
         } else {
           // if the transformation requires direct access to RDD (not in stream)
+          // this is used for "fake" transformations like with DataflowAssert
           rddEvaluator.evaluate(transform, context);
         }
       }

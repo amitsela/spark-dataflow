@@ -29,7 +29,7 @@ public class SimpleStreamingWordCountTest {
           Arrays.asList(WORDS_ARRAY));
   private static final Set<String> EXPECTED_COUNT_SET =
       ImmutableSet.of("hi: 5", "there: 1", "sue: 2", "bob: 2");
-  final long TEST_INTERVAL_MSEC = 1000L;
+  final static long TEST_INTERVAL_MSEC = 1000L;
 
   @Test
   public void testRun() throws Exception {

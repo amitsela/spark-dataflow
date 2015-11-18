@@ -7,7 +7,8 @@ import org.joda.time.Duration;
 
 /**
  * Spark streaming is a micro-batch stream processing framework, so Spark's "batchInterval" is a
- * FixedWindow strategy Dataflow requires window operations on unbounded collections when using
+ * FixedWindow strategy
+ * Dataflow requires window operations on unbounded collections when using
  * group by key or combine, but Spark streaming supports the operations on the micro batches which
  * are effectively a FixedWindow strategy
  */
