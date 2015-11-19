@@ -702,8 +702,8 @@ public final class TransformTranslator {
     return EVALUATORS.containsKey(clazz);
   }
 
-  public static <PT extends PTransform<?, ?>> TransformEvaluator<PT> getTransformEvaluator(Class<PT>
-                                                                                           clazz) {
+  public static <PT extends PTransform<?, ?>> TransformEvaluator<PT>
+  getTransformEvaluator(Class<PT> clazz) {
     @SuppressWarnings("unchecked")
     TransformEvaluator<PT> transform = (TransformEvaluator<PT>) EVALUATORS.get(clazz);
     if (transform == null) {
@@ -713,7 +713,7 @@ public final class TransformTranslator {
   }
 
   /**
-   * Translator matches Dataflow transformation with the appropriate evaluator
+   * Translator matches Dataflow transformation with the appropriate evaluator.
    */
   public static class Translator implements SparkPipelineTranslator {
 
@@ -724,7 +724,7 @@ public final class TransformTranslator {
 
     @Override
     public TransformEvaluator<? extends PTransform<?, ?>> translate(
-        Class<? extends PTransform<?, ?>> clazz) {
+            Class<? extends PTransform<?, ?>> clazz) {
       return getTransformEvaluator(clazz);
     }
   }

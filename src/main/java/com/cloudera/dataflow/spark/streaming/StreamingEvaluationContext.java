@@ -1,19 +1,26 @@
 /*
- * Copyright (c) 2015 Amit Sela
+ * Copyright (c) 2015, Cloudera, Inc. All Rights Reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Cloudera, Inc. licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"). You may not use this file except in
+ * compliance with the License. You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * This software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, either express or implied. See the License for
+ * the specific language governing permissions and limitations under the
+ * License.
  */
 package com.cloudera.dataflow.spark.streaming;
+
+
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import com.google.cloud.dataflow.sdk.Pipeline;
 import com.google.cloud.dataflow.sdk.coders.Coder;
@@ -23,8 +30,6 @@ import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
 
-import com.cloudera.dataflow.spark.EvaluationContext;
-
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaRDDLike;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -33,15 +38,11 @@ import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaDStreamLike;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
+
+import com.cloudera.dataflow.spark.EvaluationContext;
 
 /**
- * Streaming evaluation context helps to handle streaming
+ * Streaming evaluation context helps to handle streaming.
  */
 public class StreamingEvaluationContext extends EvaluationContext {
 
@@ -59,8 +60,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
   }
 
   /**
-   * DStream holder
-   * Can also crate a DStream from a supplied queue of values, but mainly for testing
+   * DStream holder Can also crate a DStream from a supplied queue of values, but mainly for
+   * testing.
    */
   private class DStreamHolder<T> {
 
