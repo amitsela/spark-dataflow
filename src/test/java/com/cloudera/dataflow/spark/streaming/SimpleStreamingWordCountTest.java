@@ -25,6 +25,7 @@ import com.cloudera.dataflow.spark.EvaluationResult;
 import com.cloudera.dataflow.spark.SimpleWordCountTest;
 import com.cloudera.dataflow.spark.SparkPipelineRunner;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -60,11 +61,13 @@ public class SimpleStreamingWordCountTest {
 
     PCollection<String> output = inputWords.apply(new SimpleWordCountTest.CountWords());
 
-    //TODO: fail unit test if assert failed - CheckerDoFn doesn't propagate the assert
-    // failure for streaming pipelines
     DataflowAssert.that(output).containsInAnyOrder(EXPECTED_COUNT_SET);
 
     EvaluationResult res = SparkPipelineRunner.create(options).run(p);
     res.close();
+
+    // Since DataflowAssert doesn't propagate assert exceptions, assert on failure Aggregator
+    int failures = res.getAggregatorValue("DataflowAssertFailure", Integer.class);
+    Assert.assertEquals("Failures found, see the log for details", 0, failures);
   }
 }
