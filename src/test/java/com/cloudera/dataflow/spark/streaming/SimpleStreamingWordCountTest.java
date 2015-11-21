@@ -24,6 +24,7 @@ import com.cloudera.dataflow.io.CreateStream;
 import com.cloudera.dataflow.spark.EvaluationResult;
 import com.cloudera.dataflow.spark.SimpleWordCountTest;
 import com.cloudera.dataflow.spark.SparkPipelineRunner;
+import com.cloudera.dataflow.spark.streaming.utils.DataflowAssertStreaming;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -66,8 +67,6 @@ public class SimpleStreamingWordCountTest {
     EvaluationResult res = SparkPipelineRunner.create(options).run(p);
     res.close();
 
-    // Since DataflowAssert doesn't propagate assert exceptions, assert on failure Aggregator
-    int failures = res.getAggregatorValue("DataflowAssertFailure", Integer.class);
-    Assert.assertEquals("Failures found, see the log for details", 0, failures);
+    DataflowAssertStreaming.assertNoFailures(res);
   }
 }
