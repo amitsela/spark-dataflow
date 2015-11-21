@@ -31,15 +31,24 @@ import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.Create;
 import com.google.cloud.dataflow.sdk.transforms.Flatten;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.values.KV;
 import com.google.cloud.dataflow.sdk.values.PDone;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaDStreamLike;
+import org.apache.spark.streaming.api.java.JavaPairInputDStream;
+import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.spark.streaming.kafka.KafkaUtils;
+
+import kafka.serializer.Decoder;
+import scala.Tuple2;
 
 import com.cloudera.dataflow.hadoop.HadoopIO;
 import com.cloudera.dataflow.io.ConsoleIO;
 import com.cloudera.dataflow.io.CreateStream;
+import com.cloudera.dataflow.io.KafkaIO;
 import com.cloudera.dataflow.spark.EvaluationContext;
 import com.cloudera.dataflow.spark.SparkPipelineTranslator;
 import com.cloudera.dataflow.spark.TransformEvaluator;
@@ -58,6 +67,31 @@ public final class StreamingTransformTranslator {
       public void evaluate(ConsoleIO.Write.Unbound transform, EvaluationContext context) {
         ((StreamingEvaluationContext) context).getStream(transform).print(transform
                 .getNum());
+      }
+    };
+  }
+
+  private static <K, V> TransformEvaluator<KafkaIO.Read.Unbound<K, V>> kafka() {
+    return new TransformEvaluator<KafkaIO.Read.Unbound<K, V>>() {
+      @Override
+      public void evaluate(KafkaIO.Read.Unbound<K, V> transform, EvaluationContext context) {
+        JavaStreamingContext jssc = ((StreamingEvaluationContext) context).getStreamingContext();
+        Class<K> keyClazz = transform.getKeyClass();
+        Class<V> valueClazz = transform.getValueClass();
+        Class<? extends Decoder<K>> keyDecoderClazz = transform.getKeyDecoderClass();
+        Class<? extends Decoder<V>> valueDecoderClazz = transform.getValueDecoderClass();
+        Map<String, String> kafkaParams = transform.getKafkaParams();
+        Set<String> topics = transform.getTopics();
+        JavaPairInputDStream<K, V> inputPairStream = KafkaUtils.createDirectStream(jssc, keyClazz,
+                valueClazz, keyDecoderClazz, valueDecoderClazz, kafkaParams, topics);
+        JavaDStream<KV<K, V>> inputStream = inputPairStream.map(new Function<Tuple2<K, V>,
+                KV<K, V>>() {
+          @Override
+          public KV<K, V> call(Tuple2<K, V> t2) throws Exception {
+            return KV.of(t2._1(), t2._2());
+          }
+        });
+        ((StreamingEvaluationContext) context).setStream(transform, inputStream);
       }
     };
   }
@@ -242,6 +276,7 @@ public final class StreamingTransformTranslator {
     EVALUATORS.put(ConsoleIO.Write.Unbound.class, print());
     EVALUATORS.put(CreateStream.QueuedValues.class, createFromQueue());
     EVALUATORS.put(Create.Values.class, create());
+    EVALUATORS.put(KafkaIO.Read.Unbound.class, kafka());
   }
 
   private static final Set<Class<? extends PTransform>> UNSUPPORTTED_EVALUATORS = Sets
