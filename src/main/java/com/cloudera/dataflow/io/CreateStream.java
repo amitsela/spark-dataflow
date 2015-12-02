@@ -15,11 +15,10 @@
 package com.cloudera.dataflow.io;
 
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.util.WindowingStrategy;
 import com.google.cloud.dataflow.sdk.values.PCollection;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.common.base.Preconditions;
-
-import com.cloudera.dataflow.spark.streaming.SparkStreamingWindowStrategy;
 
 /**
  * Create an input stream from Queue.
@@ -47,7 +46,6 @@ public final class CreateStream<T> {
   public static final class QueuedValues<T> extends PTransform<PInput, PCollection<T>> {
 
     private final Iterable<Iterable<T>> queuedValues;
-    private final Long batchInterval;
 
     QueuedValues(Iterable<Iterable<T>> queuedValues, Long batchInterval) {
       Preconditions.checkNotNull(queuedValues,
@@ -55,7 +53,6 @@ public final class CreateStream<T> {
       Preconditions.checkNotNull(batchInterval,
               "need to set the batchInterval of a SocketIO.Read transform");
       this.queuedValues = queuedValues;
-      this.batchInterval = batchInterval;
     }
 
     public Iterable<Iterable<T>> getQueuedValues() {
@@ -66,9 +63,7 @@ public final class CreateStream<T> {
     public PCollection<T> apply(PInput input) {
       // Spark streaming micro batches are bounded by default
       return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-              SparkStreamingWindowStrategy
-                      .of(batchInterval),
-              PCollection.IsBounded.BOUNDED);
+              WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
     }
   }
 

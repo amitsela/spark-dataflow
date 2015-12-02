@@ -15,11 +15,10 @@
 package com.cloudera.dataflow.io;
 
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.util.WindowingStrategy;
 import com.google.cloud.dataflow.sdk.values.PCollection;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.common.base.Preconditions;
-
-import com.cloudera.dataflow.spark.streaming.SparkStreamingWindowStrategy;
 
 /**
  * Read stream from socket.
@@ -39,30 +38,24 @@ public final class SocketIO {
      *
      * @param host          Socket host
      * @param port          Socket port
-     * @param batchInterval Spark streaming batch interval for {@link
-     * SparkStreamingWindowStrategy}
      * @return SocketIO Unbounded input
      */
-    public static Unbound from(String host, Integer port, Long batchInterval) {
-      return new Unbound(host, port, batchInterval);
+    public static Unbound from(String host, Integer port) {
+      return new Unbound(host, port);
     }
 
     public static class Unbound extends PTransform<PInput, PCollection<String>> {
 
       private final String host;
       private final Integer port;
-      private final Long batchInterval;
 
-      Unbound(String host, Integer port, Long batchInterval) {
+      Unbound(String host, Integer port) {
         Preconditions.checkNotNull(host,
                 "need to set the host of a SocketIO.Read transform");
         Preconditions.checkNotNull(port,
                 "need to set the port of a SocketIO.Read transform");
-        Preconditions.checkNotNull(batchInterval,
-                "need to set the batchInterval of a SocketIO.Read transform");
         this.host = host;
         this.port = port;
-        this.batchInterval = batchInterval;
       }
 
 
@@ -78,9 +71,7 @@ public final class SocketIO {
       public PCollection<String> apply(PInput input) {
         // Spark streaming micro batches are bounded by default
         return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-                SparkStreamingWindowStrategy
-                        .of(batchInterval),
-                PCollection.IsBounded.BOUNDED);
+                WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
       }
     }
 

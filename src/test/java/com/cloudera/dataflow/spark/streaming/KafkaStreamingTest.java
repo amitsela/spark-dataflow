@@ -99,7 +99,7 @@ public class KafkaStreamingTest {
 
     PCollection<KV<String, String>> kafkaInput = p.apply(KafkaIO.Read.from(StringDecoder.class,
             StringDecoder.class, String.class, String.class, Collections.singleton(TOPIC),
-            kafkaParams, options.getBatchInterval()));
+            kafkaParams));
 
     PCollection<String> formattedKV = kafkaInput.apply(ParDo.of(new FormatKVFn()));
 

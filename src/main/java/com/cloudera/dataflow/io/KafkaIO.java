@@ -18,14 +18,13 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.util.WindowingStrategy;
 import com.google.cloud.dataflow.sdk.values.KV;
 import com.google.cloud.dataflow.sdk.values.PCollection;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.common.base.Preconditions;
 
 import kafka.serializer.Decoder;
-
-import com.cloudera.dataflow.spark.streaming.SparkStreamingWindowStrategy;
 
 /**
  * Read stream from Kafka.
@@ -49,8 +48,6 @@ public final class KafkaIO {
      * @param value         Kafka message value Class
      * @param topics        Kafka topics to subscribe
      * @param kafkaParams   map of Kafka parameters
-     * @param batchInterval Spark streaming batch interval for {@link
-     * SparkStreamingWindowStrategy}
      * @param <K>           Kafka message key Class type
      * @param <V>           Kafka message value Class type
      * @return KafkaIO Unbound input
@@ -59,10 +56,8 @@ public final class KafkaIO {
                                             Class<? extends Decoder<V>> valueDecoder,
                                             Class<K> key,
                                             Class<V> value, Set<String> topics,
-                                            Map<String, String> kafkaParams, Long
-                                                    batchInterval) {
-      return new Unbound<>(keyDecoder, valueDecoder, key, value, topics, kafkaParams,
-              batchInterval);
+                                            Map<String, String> kafkaParams) {
+      return new Unbound<>(keyDecoder, valueDecoder, key, value, topics, kafkaParams);
     }
 
     public static class Unbound<K, V> extends PTransform<PInput, PCollection<KV<K, V>>> {
@@ -73,12 +68,10 @@ public final class KafkaIO {
       private final Class<V> valueClass;
       private final Set<String> topics;
       private final Map<String, String> kafkaParams;
-      private final Long batchInterval;
 
       Unbound(Class<? extends Decoder<K>> keyDecoder,
               Class<? extends Decoder<V>> valueDecoder, Class<K> key,
-              Class<V> value, Set<String> topics, Map<String, String> kafkaParams,
-              Long batchInterval) {
+              Class<V> value, Set<String> topics, Map<String, String> kafkaParams) {
         Preconditions.checkNotNull(keyDecoder,
                 "need to set the key decoder class of a KafkaIO.Read transform");
         Preconditions.checkNotNull(valueDecoder,
@@ -91,15 +84,12 @@ public final class KafkaIO {
                 "need to set the topics of a KafkaIO.Read transform");
         Preconditions.checkNotNull(kafkaParams,
                 "need to set the kafkaParams of a KafkaIO.Read transform");
-        Preconditions.checkNotNull(batchInterval,
-                "need to set the batchInterval of a KafkaIO.Read transform");
         this.keyDecoderClass = keyDecoder;
         this.valueDecoderClass = valueDecoder;
         this.keyClass = key;
         this.valueClass = value;
         this.topics = topics;
         this.kafkaParams = kafkaParams;
-        this.batchInterval = batchInterval;
       }
 
       public Class<? extends Decoder<K>> getKeyDecoderClass() {
@@ -130,9 +120,7 @@ public final class KafkaIO {
       public PCollection<KV<K, V>> apply(PInput input) {
         // Spark streaming micro batches are bounded by default
         return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-                SparkStreamingWindowStrategy
-                        .of(batchInterval),
-                PCollection.IsBounded.BOUNDED);
+                WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
       }
     }
 
