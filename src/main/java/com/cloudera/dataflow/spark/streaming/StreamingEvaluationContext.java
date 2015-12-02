@@ -26,6 +26,7 @@ import com.google.cloud.dataflow.sdk.Pipeline;
 import com.google.cloud.dataflow.sdk.coders.Coder;
 import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.util.WindowedValue;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
@@ -67,25 +68,25 @@ public class StreamingEvaluationContext extends EvaluationContext {
 
     private Iterable<Iterable<T>> values;
     private Coder<T> coder;
-    private JavaDStream<T> dStream;
+    private JavaDStream<WindowedValue<T>> dStream;
 
     public DStreamHolder(Iterable<Iterable<T>> values, Coder<T> coder) {
       this.values = values;
       this.coder = coder;
     }
 
-    public DStreamHolder(JavaDStream<T> dStream) {
+    public DStreamHolder(JavaDStream<WindowedValue<T>> dStream) {
       this.dStream = dStream;
     }
 
     @SuppressWarnings("unchecked")
-    public JavaDStream<T> getDStream() {
+    public JavaDStream<WindowedValue<T>> getDStream() {
       if (dStream == null) {
         // create the DStream from values
-        Queue<JavaRDD<T>> rddQueue = new LinkedBlockingQueue<>();
+        Queue<JavaRDD<WindowedValue<T>>> rddQueue = new LinkedBlockingQueue<>();
         for (Iterable<T> v : values) {
           setOutputRDDFromValues(currentTransform.getTransform(), v, coder);
-          rddQueue.offer((JavaRDD<T>) getOutputRDD(currentTransform.getTransform()));
+          rddQueue.offer((JavaRDD<WindowedValue<T>>) getOutputRDD(currentTransform.getTransform()));
         }
         // create dstream from queue, one at a time, no defaults
         // mainly for unit test so no reason to have this configurable
@@ -100,8 +101,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
     pstreams.put((PValue) getOutput(transform), new DStreamHolder<>(values, coder));
   }
 
-  public <T, R extends JavaRDDLike<T, R>> void setStream(PTransform<?, ?> transform,
-                                                         JavaDStreamLike<T, ?, R> dStream) {
+  public <T, R extends JavaRDDLike<WindowedValue<T>, R>>
+      void setStream(PTransform<?, ?> transform, JavaDStreamLike<WindowedValue<T>, ?, R> dStream) {
     PValue pvalue = (PValue) getOutput(transform);
     @SuppressWarnings("unchecked")
     DStreamHolder<T> dStreamHolder = new DStreamHolder((JavaDStream) dStream);
@@ -123,7 +124,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
   }
 
   // used to set the RDD from the DStream in the RDDHolder for transformation
-  public <T> void setInputRDD(PTransform<? extends PInput, ?> transform, JavaRDDLike<T, ?> rdd) {
+  public <T> void setInputRDD(PTransform<? extends PInput, ?> transform,
+      JavaRDDLike<WindowedValue<T>, ?> rdd) {
     setRDD((PValue) getInput(transform), rdd);
   }
 
@@ -140,10 +142,10 @@ public class StreamingEvaluationContext extends EvaluationContext {
   protected void computeOutputs() {
     for (DStreamHolder<?> streamHolder : leafStreams) {
       @SuppressWarnings("unchecked")
-      JavaDStream<Object> stream = (JavaDStream<Object>) streamHolder.getDStream();
-      stream.foreachRDD(new Function<JavaRDD<Object>, Void>() {
+      JavaDStream<WindowedValue<?>> stream = (JavaDStream) streamHolder.getDStream();
+      stream.foreachRDD(new Function<JavaRDD<WindowedValue<?>>, Void>() {
         @Override
-        public Void call(JavaRDD<Object> rdd) throws Exception {
+        public Void call(JavaRDD<WindowedValue<?>> rdd) throws Exception {
           rdd.rdd().cache();
           rdd.count();
           return null;
@@ -194,7 +196,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
   }
 
   @Override
-  protected <T> void setOutputRDD(PTransform<?, ?> transform, JavaRDDLike<T, ?> rdd) {
+  protected <T> void setOutputRDD(PTransform<?, ?> transform,
+      JavaRDDLike<WindowedValue<T>, ?> rdd) {
     super.setOutputRDD(transform, rdd);
   }
 

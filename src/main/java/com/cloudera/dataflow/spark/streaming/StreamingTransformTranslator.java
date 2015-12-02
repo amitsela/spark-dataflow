@@ -31,6 +31,7 @@ import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.Create;
 import com.google.cloud.dataflow.sdk.transforms.Flatten;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.util.WindowedValue;
 import com.google.cloud.dataflow.sdk.values.KV;
 import com.google.cloud.dataflow.sdk.values.PDone;
 
@@ -53,6 +54,7 @@ import com.cloudera.dataflow.io.KafkaIO;
 import com.cloudera.dataflow.spark.EvaluationContext;
 import com.cloudera.dataflow.spark.SparkPipelineTranslator;
 import com.cloudera.dataflow.spark.TransformEvaluator;
+import com.cloudera.dataflow.spark.WindowingHelpers;
 
 /**
  * Supports translation between a DataFlow transform, and Spark's operations on DStreams.
@@ -85,13 +87,13 @@ public final class StreamingTransformTranslator {
         Set<String> topics = transform.getTopics();
         JavaPairInputDStream<K, V> inputPairStream = KafkaUtils.createDirectStream(jssc, keyClazz,
                 valueClazz, keyDecoderClazz, valueDecoderClazz, kafkaParams, topics);
-        JavaDStream<KV<K, V>> inputStream = inputPairStream.map(new Function<Tuple2<K, V>,
-                KV<K, V>>() {
+        JavaDStream<WindowedValue<KV<K, V>>> inputStream =
+            inputPairStream.map(new Function<Tuple2<K, V>, KV<K, V>>() {
           @Override
           public KV<K, V> call(Tuple2<K, V> t2) throws Exception {
             return KV.of(t2._1(), t2._2());
           }
-        });
+        }).map(WindowingHelpers.<KV<K, V>>windowFunction());
         ((StreamingEvaluationContext) context).setStream(transform, inputStream);
       }
     };
@@ -117,10 +119,8 @@ public final class StreamingTransformTranslator {
           // to invoke following transformations once
           // to support DataflowAssert
           ((StreamingEvaluationContext) context).setDStreamFromQueue(transform,
-                  Collections.<Iterable<Void>>singletonList(
-                          Collections.singletonList(
-                                  (Void) null)),
-                  (Coder<Void>) coder);
+              Collections.<Iterable<Void>>singletonList(Collections.singletonList((Void) null)),
+              (Coder<Void>) coder);
         }
       }
     };
@@ -133,9 +133,9 @@ public final class StreamingTransformTranslator {
               context) {
         Iterable<Iterable<T>> values = transform.getQueuedValues();
         Coder<T> coder = ((StreamingEvaluationContext) context).getOutput(transform)
-                .getCoder();
+            .getCoder();
         ((StreamingEvaluationContext) context).setDStreamFromQueue(transform, values,
-                coder);
+            coder);
       }
     };
   }
@@ -147,19 +147,17 @@ public final class StreamingTransformTranslator {
       @Override
       public void evaluate(final PT transform,
                            final EvaluationContext context) {
-        final TransformEvaluator
-                rddEvaluator = rddTranslator.translate(
-                (Class<? extends PTransform<?, ?>>) transform.getClass());
+        final TransformEvaluator rddEvaluator =
+            rddTranslator.translate((Class<? extends PTransform<?, ?>>) transform.getClass());
+
         if (((StreamingEvaluationContext) context).hasStream(transform)) {
-          JavaDStreamLike<Object, ?, JavaRDD<Object>>
-                  dStream =
-                  (JavaDStreamLike<Object, ?, JavaRDD<Object>>) (
-                          (StreamingEvaluationContext) context)
-                          .getStream(transform);
+          JavaDStreamLike<WindowedValue<Object>, ?, JavaRDD<WindowedValue<Object>>> dStream =
+              (JavaDStreamLike<WindowedValue<Object>, ?, JavaRDD<WindowedValue<Object>>>)
+              ((StreamingEvaluationContext) context).getStream(transform);
+
           ((StreamingEvaluationContext) context).setStream(transform, dStream
-                  .transform(new RDDTransform<>((StreamingEvaluationContext) context,
-                          rddEvaluator,
-                          transform)));
+              .transform(new RDDTransform<>((StreamingEvaluationContext) context,
+              rddEvaluator, transform)));
         } else {
           // if the transformation requires direct access to RDD (not in stream)
           // this is used for "fake" transformations like with DataflowAssert
@@ -176,7 +174,7 @@ public final class StreamingTransformTranslator {
    * @param <PT> PTransform type
    */
   private static final class RDDTransform<PT extends PTransform<?, ?>>
-          implements Function<JavaRDD<Object>, JavaRDD<Object>> {
+          implements Function<JavaRDD<WindowedValue<Object>>, JavaRDD<WindowedValue<Object>>> {
 
     private final StreamingEvaluationContext context;
     private final AppliedPTransform<?, ?, ?> appliedPTransform;
@@ -194,16 +192,19 @@ public final class StreamingTransformTranslator {
 
     @Override
     @SuppressWarnings("unchecked")
-    public JavaRDD<Object> call(JavaRDD<Object> rdd) throws Exception {
+    public JavaRDD<WindowedValue<Object>>
+        call(JavaRDD<WindowedValue<Object>> rdd) throws Exception {
       AppliedPTransform<?, ?, ?> existingAPT = context.getCurrentTransform();
       context.setCurrentTransform(appliedPTransform);
       context.setInputRDD(transform, rdd);
       rddEvaluator.evaluate(transform, context);
       if (!context.hasOutputRDD(transform)) {
         // fake RDD as output
-        context.setOutputRDD(transform, context.getSparkContext().emptyRDD());
+        context.setOutputRDD(transform,
+            context.getSparkContext().<WindowedValue<Object>>emptyRDD());
       }
-      JavaRDD<Object> outRDD = (JavaRDD<Object>) context.getOutputRDD(transform);
+      JavaRDD<WindowedValue<Object>> outRDD =
+          (JavaRDD<WindowedValue<Object>>) context.getOutputRDD(transform);
       context.setCurrentTransform(existingAPT);
       return outRDD;
     }
@@ -216,19 +217,16 @@ public final class StreamingTransformTranslator {
       @Override
       public void evaluate(final PT transform,
                            final EvaluationContext context) {
-        final TransformEvaluator
-                rddEvaluator = rddTranslator.translate(
-                (Class<? extends PTransform<?, ?>>) transform.getClass());
+        final TransformEvaluator rddEvaluator =
+            rddTranslator.translate((Class<? extends PTransform<?, ?>>) transform.getClass());
+
         if (((StreamingEvaluationContext) context).hasStream(transform)) {
-          JavaDStreamLike<Object, ?, JavaRDD<Object>>
-                  dStream =
-                  (JavaDStreamLike<Object, ?, JavaRDD<Object>>) (
-                          (StreamingEvaluationContext) context)
-                          .getStream(transform);
-          dStream.foreachRDD(
-                  new RDDOutputOperator<>((StreamingEvaluationContext) context,
-                          rddEvaluator,
-                          transform));
+          JavaDStreamLike<WindowedValue<Object>, ?, JavaRDD<WindowedValue<Object>>> dStream =
+              (JavaDStreamLike<WindowedValue<Object>, ?, JavaRDD<WindowedValue<Object>>>) (
+              (StreamingEvaluationContext) context).getStream(transform);
+
+          dStream.foreachRDD(new RDDOutputOperator<>((StreamingEvaluationContext) context,
+              rddEvaluator, transform));
         } else {
           rddEvaluator.evaluate(transform, context);
         }
@@ -242,7 +240,7 @@ public final class StreamingTransformTranslator {
    * @param <PT> PTransform type
    */
   private static final class RDDOutputOperator<PT extends PTransform<?, ?>>
-          implements Function<JavaRDD<Object>, Void> {
+          implements Function<JavaRDD<WindowedValue<Object>>, Void> {
 
     private final StreamingEvaluationContext context;
     private final AppliedPTransform<?, ?, ?> appliedPTransform;
@@ -260,7 +258,7 @@ public final class StreamingTransformTranslator {
 
     @Override
     @SuppressWarnings("unchecked")
-    public Void call(JavaRDD<Object> rdd) throws Exception {
+    public Void call(JavaRDD<WindowedValue<Object>> rdd) throws Exception {
       AppliedPTransform<?, ?, ?> existingAPT = context.getCurrentTransform();
       context.setCurrentTransform(appliedPTransform);
       context.setInputRDD(transform, rdd);
@@ -305,8 +303,8 @@ public final class StreamingTransformTranslator {
     if (transform == null) {
       if (UNSUPPORTTED_EVALUATORS.contains(clazz)) {
         throw new UnsupportedOperationException("Dataflow transformation " + clazz
-                .getCanonicalName()
-                + " is currently unsupported by the Spark streaming pipeline");
+          .getCanonicalName()
+          + " is currently unsupported by the Spark streaming pipeline");
       }
       // DStream transformations will transform an RDD into another RDD
       // Actions will create output
