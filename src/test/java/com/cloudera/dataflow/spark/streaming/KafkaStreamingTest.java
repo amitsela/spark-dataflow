@@ -20,6 +20,9 @@ import com.google.cloud.dataflow.sdk.repackaged.com.google.common.collect.Immuta
 import com.google.cloud.dataflow.sdk.testing.DataflowAssert;
 import com.google.cloud.dataflow.sdk.transforms.DoFn;
 import com.google.cloud.dataflow.sdk.transforms.ParDo;
+import com.google.cloud.dataflow.sdk.transforms.View;
+import com.google.cloud.dataflow.sdk.transforms.windowing.FixedWindows;
+import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
 import com.google.cloud.dataflow.sdk.values.KV;
 import com.google.cloud.dataflow.sdk.values.PCollection;
 
@@ -33,6 +36,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.joda.time.Duration;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -88,7 +92,6 @@ public class KafkaStreamingTest {
     SparkStreamingPipelineOptions options = SparkStreamingPipelineOptionsFactory.create();
     options.setAppName(this.getClass().getSimpleName());
     options.setRunner(SparkPipelineRunner.class);
-    options.setBatchInterval(TEST_INTERVAL_MSEC);
     options.setTimeout(TEST_INTERVAL_MSEC);// run for one interval
     Pipeline p = Pipeline.create(options);
 
@@ -98,12 +101,15 @@ public class KafkaStreamingTest {
     );
 
     PCollection<KV<String, String>> kafkaInput = p.apply(KafkaIO.Read.from(StringDecoder.class,
-            StringDecoder.class, String.class, String.class, Collections.singleton(TOPIC),
-            kafkaParams));
+        StringDecoder.class, String.class, String.class, Collections.singleton(TOPIC),
+        kafkaParams));
+    PCollection<KV<String, String>> windowedWords = kafkaInput
+        .apply(Window.<KV<String, String>>into(FixedWindows.of(Duration.standardSeconds(1))));
 
-    PCollection<String> formattedKV = kafkaInput.apply(ParDo.of(new FormatKVFn()));
+    PCollection<String> formattedKV = windowedWords.apply(ParDo.of(new FormatKVFn()));
 
-    DataflowAssert.that(formattedKV).containsInAnyOrder(EXPECTED);
+    DataflowAssert.thatIterable(formattedKV.apply(View.<String>asIterable()))
+        .containsInAnyOrder(EXPECTED);
 
     EvaluationResult res = SparkPipelineRunner.create(options).run(p);
     res.close();
