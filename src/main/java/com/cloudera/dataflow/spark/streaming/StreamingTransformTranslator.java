@@ -68,8 +68,12 @@ public final class StreamingTransformTranslator {
     return new TransformEvaluator<ConsoleIO.Write.Unbound<T>>() {
       @Override
       public void evaluate(ConsoleIO.Write.Unbound transform, EvaluationContext context) {
-        ((StreamingEvaluationContext) context).getStream(transform).print(transform
-                .getNum());
+        @SuppressWarnings("unchecked")
+        JavaDStreamLike<WindowedValue<T>, ?, JavaRDD<WindowedValue<T>>> dstream =
+            (JavaDStreamLike<WindowedValue<T>, ?, JavaRDD<WindowedValue<T>>>)
+            ((StreamingEvaluationContext) context).getStream(transform);
+        dstream.map(WindowingHelpers.<T>unwindowFunction())
+            .print(transform.getNum());
       }
     };
   }
