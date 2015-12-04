@@ -81,7 +81,7 @@ public final class TransformTranslator {
   private TransformTranslator() {
   }
 
-  private static class FieldGetter {
+  static class FieldGetter {
     private final Map<String, Field> fields;
 
     FieldGetter(Class<?> clazz) {
@@ -151,14 +151,13 @@ public final class TransformTranslator {
     return new TransformEvaluator<Combine.GroupedValues<K, VI, VO>>() {
       @Override
       public void evaluate(Combine.GroupedValues<K, VI, VO> transform, EvaluationContext context) {
-        Combine.KeyedCombineFn<K, VI, ?, VI> keyed = GROUPED_FG.get("fn", transform);
+        Combine.KeyedCombineFn<K, VI, ?, VO> keyed = GROUPED_FG.get("fn", transform);
         @SuppressWarnings("unchecked")
         JavaRDDLike<WindowedValue<KV<K, Iterable<VI>>>, ?> inRDD =
             (JavaRDDLike<WindowedValue<KV<K, Iterable<VI>>>, ?>) context.getInputRDD(transform);
         context.setOutputRDD(transform,
             inRDD.map(WindowingHelpers.<KV<K, Iterable<VI>>>unwindowFunction())
-            //TODO: is VI=VO ?
-            .map(new KVFunction<>(keyed)).map(WindowingHelpers.<KV<K, VI>>windowFunction()));
+            .map(new KVFunction<>(keyed)).map(WindowingHelpers.<KV<K, VO>>windowFunction()));
       }
     };
   }
@@ -241,7 +240,7 @@ public final class TransformTranslator {
         KvCoder<K, VI> inputCoder = (KvCoder<K, VI>) context.getInput(transform).getCoder();
         Coder<K> keyCoder = inputCoder.getKeyCoder();
         Coder<VI> viCoder = inputCoder.getValueCoder();
-        Coder<VA> vaCoder = null;
+        Coder<VA> vaCoder;
         try {
           vaCoder = keyed.getAccumulatorCoder(
               context.getPipeline().getCoderRegistry(), keyCoder, viCoder);
@@ -324,15 +323,16 @@ public final class TransformTranslator {
     };
   }
 
-  private static final class KVFunction<K, V> implements Function<KV<K, Iterable<V>>, KV<K, V>> {
-    private final Combine.KeyedCombineFn<K, V, ?, V> keyed;
+  private static final class KVFunction<K, VI, VO>
+      implements Function<KV<K, Iterable<VI>>, KV<K, VO>> {
+    private final Combine.KeyedCombineFn<K, VI, ?, VO> keyed;
 
-    KVFunction(Combine.KeyedCombineFn<K, V, ?, V> keyed) {
+    KVFunction(Combine.KeyedCombineFn<K, VI, ?, VO> keyed) {
       this.keyed = keyed;
     }
 
     @Override
-    public KV<K, V> call(KV<K, Iterable<V>> kv) throws Exception {
+    public KV<K, VO> call(KV<K, Iterable<VI>> kv) throws Exception {
       return KV.of(kv.getKey(), keyed.apply(kv.getKey(), kv.getValue()));
     }
   }
@@ -611,7 +611,7 @@ public final class TransformTranslator {
       public void evaluate(Window.Bound<T> transform, EvaluationContext context) {
         @SuppressWarnings("unchecked")
         JavaRDDLike<WindowedValue<T>, ?> inRDD =
-                (JavaRDDLike<WindowedValue<T>, ?>) context.getInputRDD(transform);
+            (JavaRDDLike<WindowedValue<T>, ?>) context.getInputRDD(transform);
         WindowFn<? super T, W> windowFn = WINDOW_FG.get("windowFn", transform);
         if (windowFn instanceof GlobalWindows) {
           context.setOutputRDD(transform, inRDD);
@@ -721,9 +721,9 @@ public final class TransformTranslator {
     EVALUATORS.put(ParDo.Bound.class, parDo());
     EVALUATORS.put(ParDo.BoundMulti.class, multiDo());
     EVALUATORS.put(GroupByKey.GroupByKeyOnly.class, gbk());
-    EVALUATORS.put(Combine.GroupedValues.class, grouped());
-    EVALUATORS.put(Combine.Globally.class, combineGlobally());
-    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
+//    EVALUATORS.put(Combine.GroupedValues.class, grouped());
+//    EVALUATORS.put(Combine.Globally.class, combineGlobally());
+//    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
     EVALUATORS.put(Flatten.FlattenPCollectionList.class, flattenPColl());
     EVALUATORS.put(Create.Values.class, create());
     EVALUATORS.put(View.AsSingleton.class, viewAsSingleton());
