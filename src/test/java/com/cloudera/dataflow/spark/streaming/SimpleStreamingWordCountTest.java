@@ -64,7 +64,8 @@ public class SimpleStreamingWordCountTest {
 
     PCollection<String> output = windowedWords.apply(new SimpleWordCountTest.CountWords());
 
-    DataflowAssert.thatIterable(output.apply(View.<String>asIterable())).containsInAnyOrder(EXPECTED_COUNT_SET);
+    DataflowAssert.thatIterable(output.apply(View.<String>asIterable()))
+        .containsInAnyOrder(EXPECTED_COUNT_SET);
 
     EvaluationResult res = SparkPipelineRunner.create(options).run(p);
     res.close();
