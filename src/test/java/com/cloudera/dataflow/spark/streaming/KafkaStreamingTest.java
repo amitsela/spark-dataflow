@@ -65,7 +65,7 @@ public class KafkaStreamingTest {
   private static final Set<String> EXPECTED = ImmutableSet.of(
           "k1,v1", "k2,v2", "k3,v3", "k4,v4"
   );
-  private final static long TEST_INTERVAL_MSEC = 1000L;
+  private final static long TEST_TIMEOUT_MSEC = 1000L;
 
   @BeforeClass
   public static void init() throws IOException, InterruptedException {
@@ -92,7 +92,7 @@ public class KafkaStreamingTest {
     SparkStreamingPipelineOptions options = SparkStreamingPipelineOptionsFactory.create();
     options.setAppName(this.getClass().getSimpleName());
     options.setRunner(SparkPipelineRunner.class);
-    options.setTimeout(TEST_INTERVAL_MSEC);// run for one interval
+    options.setTimeout(TEST_TIMEOUT_MSEC);// run for one interval
     Pipeline p = Pipeline.create(options);
 
     Map<String, String> kafkaParams = ImmutableMap.of(

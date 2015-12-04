@@ -47,14 +47,14 @@ public class SimpleStreamingWordCountTest {
       Collections.<Iterable<String>>singletonList(Arrays.asList(WORDS_ARRAY));
   private static final Set<String> EXPECTED_COUNT_SET =
       ImmutableSet.of("hi: 5", "there: 1", "sue: 2", "bob: 2");
-  final static long TEST_INTERVAL_MSEC = 1000L;
+  final static long TEST_TIMEOUT_MSEC = 1000L;
 
   @Test
   public void testRun() throws Exception {
     SparkStreamingPipelineOptions options = SparkStreamingPipelineOptionsFactory.create();
     options.setAppName(this.getClass().getSimpleName());
     options.setRunner(SparkPipelineRunner.class);
-    options.setTimeout(TEST_INTERVAL_MSEC);// run for one interval
+    options.setTimeout(TEST_TIMEOUT_MSEC);// run for one interval
     Pipeline p = Pipeline.create(options);
 
     PCollection<String> inputWords =
