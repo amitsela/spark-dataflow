@@ -23,13 +23,6 @@ import com.cloudera.dataflow.spark.SparkPipelineOptions;
  * Options used to configure Spark streaming.
  */
 public interface SparkStreamingPipelineOptions extends SparkPipelineOptions {
-
-  @Description("The time interval (in msec) at which streaming data will be divided into batches")
-  @Default.Long(1000)
-  Long getBatchInterval();
-
-  void setBatchInterval(Long batchInterval);
-
   @Description("Timeout to wait (in msec) for the streaming execution so stop, -1 runs until " +
           "execution is stopped")
   @Default.Long(-1)
