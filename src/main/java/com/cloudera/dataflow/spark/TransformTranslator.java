@@ -49,6 +49,8 @@ import com.google.cloud.dataflow.sdk.values.PCollectionTuple;
 import com.google.cloud.dataflow.sdk.values.PCollectionView;
 import com.google.cloud.dataflow.sdk.values.TupleTag;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
+
 import org.apache.avro.mapred.AvroKey;
 import org.apache.avro.mapreduce.AvroJob;
 import org.apache.avro.mapreduce.AvroKeyInputFormat;
@@ -160,6 +162,38 @@ public final class TransformTranslator {
             .map(new KVFunction<>(keyed)).map(WindowingHelpers.<KV<K, VO>>windowFunction()));
       }
     };
+  }
+
+  private static <K, V> TransformEvaluator<GroupByKey.GroupAlsoByWindow<K, V>> groupByWindow() {
+    return new TransformEvaluator<GroupByKey.GroupAlsoByWindow<K, V>>() {
+      @Override
+      public void evaluate(GroupByKey.GroupAlsoByWindow<K, V> transform,
+          EvaluationContext context) {
+        @SuppressWarnings("unchecked")
+        JavaRDDLike<WindowedValue<KV<K, Iterable<WindowedValue<V>>>>, ?> inRDD =
+            (JavaRDDLike<WindowedValue<KV<K, Iterable<WindowedValue<V>>>>, ?>)
+            context.getInputRDD(transform);
+        context.setOutputRDD(transform,
+                inRDD.map(WindowingHelpers.<KV<K, Iterable<WindowedValue<V>>>>unwindowFunction())
+                        .map(new UnwindowItrValueFunction<K, V>())
+                        .map(WindowingHelpers.<KV<K, Iterable<V>>>windowFunction()));
+      }
+    };
+  }
+
+  private static final class UnwindowItrValueFunction<K, V>
+          implements Function<KV<K, Iterable<WindowedValue<V>>>, KV<K, Iterable<V>>> {
+    @Override
+    public KV<K, Iterable<V>> call(KV<K, Iterable<WindowedValue<V>>> kv) throws Exception {
+      Iterable<V> unwindowed = Iterables.transform(kv.getValue(),
+          new com.google.common.base.Function<WindowedValue<V>, V>() {
+            @Override
+            public V apply(WindowedValue<V> windowedValue) {
+              return windowedValue.getValue();
+            }
+          });
+      return KV.of(kv.getKey(), unwindowed);
+    }
   }
 
   private static final FieldGetter COMBINE_GLOBALLY_FG = new FieldGetter(Combine.Globally.class);
@@ -721,9 +755,10 @@ public final class TransformTranslator {
     EVALUATORS.put(ParDo.Bound.class, parDo());
     EVALUATORS.put(ParDo.BoundMulti.class, multiDo());
     EVALUATORS.put(GroupByKey.GroupByKeyOnly.class, gbk());
-//    EVALUATORS.put(Combine.GroupedValues.class, grouped());
+    EVALUATORS.put(Combine.GroupedValues.class, grouped());
     EVALUATORS.put(Combine.Globally.class, combineGlobally());
-//    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
+    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
+    EVALUATORS.put(GroupByKey.GroupAlsoByWindow.class, groupByWindow());
     EVALUATORS.put(Flatten.FlattenPCollectionList.class, flattenPColl());
     EVALUATORS.put(Create.Values.class, create());
     EVALUATORS.put(View.AsSingleton.class, viewAsSingleton());
