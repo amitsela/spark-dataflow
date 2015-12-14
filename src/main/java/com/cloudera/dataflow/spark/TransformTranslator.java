@@ -182,7 +182,7 @@ public final class TransformTranslator {
   }
 
   private static final class UnwindowItrValueFunction<K, V>
-          implements Function<KV<K, Iterable<WindowedValue<V>>>, KV<K, Iterable<V>>> {
+      implements Function<KV<K, Iterable<WindowedValue<V>>>, KV<K, Iterable<V>>> {
     @Override
     public KV<K, Iterable<V>> call(KV<K, Iterable<WindowedValue<V>>> kv) throws Exception {
       Iterable<V> unwindowed = Iterables.transform(kv.getValue(),
