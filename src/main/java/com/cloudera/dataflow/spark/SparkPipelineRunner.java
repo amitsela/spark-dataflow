@@ -179,15 +179,6 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
     }
   }
 
-  // create the proper translator
-  private SparkPipelineTranslator createTranslator() {
-    SparkPipelineTranslator rddTranslator = new TransformTranslator.Translator();
-    if (!mOptions.isStreaming()) {
-      return rddTranslator;
-    }
-    return new StreamingTransformTranslator.Translator(rddTranslator);
-  }
-
   private EvaluationContext
       createStreamingEvaluationContext(JavaSparkContext jsc, Pipeline pipeline,
       Duration batchDuration) {
