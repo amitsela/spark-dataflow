@@ -29,8 +29,15 @@ import com.google.cloud.dataflow.sdk.io.TextIO;
 import com.google.cloud.dataflow.sdk.repackaged.com.google.common.reflect.TypeToken;
 import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.Create;
+import com.google.cloud.dataflow.sdk.transforms.DoFn;
 import com.google.cloud.dataflow.sdk.transforms.Flatten;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
+import com.google.cloud.dataflow.sdk.transforms.windowing.BoundedWindow;
+import com.google.cloud.dataflow.sdk.transforms.windowing.FixedWindows;
+import com.google.cloud.dataflow.sdk.transforms.windowing.SlidingWindows;
+import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
+import com.google.cloud.dataflow.sdk.transforms.windowing.WindowFn;
+import com.google.cloud.dataflow.sdk.util.AssignWindowsDoFn;
 import com.google.cloud.dataflow.sdk.util.WindowedValue;
 import com.google.cloud.dataflow.sdk.values.KV;
 import com.google.cloud.dataflow.sdk.values.PDone;
@@ -39,6 +46,8 @@ import kafka.serializer.Decoder;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.streaming.Duration;
+import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaDStreamLike;
 import org.apache.spark.streaming.api.java.JavaPairInputDStream;
@@ -51,9 +60,11 @@ import com.cloudera.dataflow.hadoop.HadoopIO;
 import com.cloudera.dataflow.io.ConsoleIO;
 import com.cloudera.dataflow.io.CreateStream;
 import com.cloudera.dataflow.io.KafkaIO;
+import com.cloudera.dataflow.spark.DoFnFunction;
 import com.cloudera.dataflow.spark.EvaluationContext;
 import com.cloudera.dataflow.spark.SparkPipelineTranslator;
 import com.cloudera.dataflow.spark.TransformEvaluator;
+import com.cloudera.dataflow.spark.TransformTranslator;
 import com.cloudera.dataflow.spark.WindowingHelpers;
 
 /**
@@ -272,18 +283,60 @@ public final class StreamingTransformTranslator {
     }
   }
 
+  static final TransformTranslator.FieldGetter WINDOW_FG =
+      new TransformTranslator.FieldGetter(Window.Bound.class);
+
+  private static <T, W extends BoundedWindow> TransformEvaluator<Window.Bound<T>> window() {
+    return new TransformEvaluator<Window.Bound<T>>() {
+      @Override
+      public void evaluate(Window.Bound<T> transform, EvaluationContext context) {
+        //--- first we apply windowing to the stream
+        WindowFn<? super T, W> windowFn = WINDOW_FG.get("windowFn", transform);
+        @SuppressWarnings("unchecked")
+        JavaDStream<WindowedValue<T>> dStream =
+            (JavaDStream<WindowedValue<T>>)
+            ((StreamingEvaluationContext) context).getStream(transform);
+        if (windowFn instanceof FixedWindows) {
+          Duration windowDuration = Durations.milliseconds(((FixedWindows) windowFn).getSize()
+              .getMillis());
+          ((StreamingEvaluationContext) context)
+              .setStream(transform, dStream.window(windowDuration));
+        } else if (windowFn instanceof SlidingWindows) {
+          Duration windowDuration = Durations.milliseconds(((SlidingWindows) windowFn).getSize()
+              .getMillis());
+          Duration slideDuration = Durations.milliseconds(((SlidingWindows) windowFn).getPeriod()
+              .getMillis());
+          ((StreamingEvaluationContext) context)
+              .setStream(transform, dStream.window(windowDuration, slideDuration));
+        }
+        //--- then we apply windowing to the elements
+        DoFn<T, T> addWindowsDoFn = new AssignWindowsDoFn<>(windowFn);
+        DoFnFunction<T, T> dofn = new DoFnFunction<>(addWindowsDoFn,
+            ((StreamingEvaluationContext)context).getRuntimeContext(), null);
+        @SuppressWarnings("unchecked")
+        JavaDStreamLike<WindowedValue<T>, ?, JavaRDD<WindowedValue<T>>> dstream =
+            (JavaDStreamLike<WindowedValue<T>, ?, JavaRDD<WindowedValue<T>>>)
+            ((StreamingEvaluationContext) context).getStream(transform);
+        //noinspection unchecked
+        ((StreamingEvaluationContext) context).setStream(transform,
+             dstream.mapPartitions(dofn));
+      }
+    };
+  }
+
   private static final Map<Class<? extends PTransform>, TransformEvaluator<?>> EVALUATORS = Maps
-          .newHashMap();
+      .newHashMap();
 
   static {
     EVALUATORS.put(ConsoleIO.Write.Unbound.class, print());
     EVALUATORS.put(CreateStream.QueuedValues.class, createFromQueue());
     EVALUATORS.put(Create.Values.class, create());
     EVALUATORS.put(KafkaIO.Read.Unbound.class, kafka());
+    EVALUATORS.put(Window.Bound.class, window());
   }
 
   private static final Set<Class<? extends PTransform>> UNSUPPORTTED_EVALUATORS = Sets
-          .newHashSet();
+      .newHashSet();
 
   static {
     //TODO - add support for the following
@@ -302,7 +355,7 @@ public final class StreamingTransformTranslator {
 
   @SuppressWarnings("unchecked")
   private static <PT extends PTransform<?, ?>> TransformEvaluator<PT>
-  getTransformEvaluator(Class<PT> clazz, SparkPipelineTranslator rddTranslator) {
+      getTransformEvaluator(Class<PT> clazz, SparkPipelineTranslator rddTranslator) {
     TransformEvaluator<PT> transform = (TransformEvaluator<PT>) EVALUATORS.get(clazz);
     if (transform == null) {
       if (UNSUPPORTTED_EVALUATORS.contains(clazz)) {
@@ -324,7 +377,7 @@ public final class StreamingTransformTranslator {
   }
 
   private static <PT extends PTransform<?, ?>> Class
-  getPTransformOutputClazz(Class<PT> clazz) {
+      getPTransformOutputClazz(Class<PT> clazz) {
     Type[] types = ((ParameterizedType) clazz.getGenericSuperclass()).getActualTypeArguments();
     return TypeToken.of(clazz).resolveType(types[1]).getRawType();
   }
