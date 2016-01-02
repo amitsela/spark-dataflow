@@ -83,10 +83,10 @@ public final class TransformTranslator {
   private TransformTranslator() {
   }
 
-  static class FieldGetter {
+  public static class FieldGetter {
     private final Map<String, Field> fields;
 
-    FieldGetter(Class<?> clazz) {
+    public FieldGetter(Class<?> clazz) {
       this.fields = Maps.newHashMap();
       for (Field f : clazz.getDeclaredFields()) {
         f.setAccessible(true);
