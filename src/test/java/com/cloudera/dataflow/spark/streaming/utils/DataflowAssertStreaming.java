@@ -34,7 +34,6 @@ public final class DataflowAssertStreaming {
 
   public static void assertNoFailures(EvaluationResult res) {
     int failures = res.getAggregatorValue(FAILURE_COUNTER, Integer.class);
-    Assert.assertEquals("Found " + failures + " failures, see the log for details", 0,
-            failures);
+    Assert.assertEquals("Found " + failures + " failures, see the log for details", 0, failures);
   }
 }
