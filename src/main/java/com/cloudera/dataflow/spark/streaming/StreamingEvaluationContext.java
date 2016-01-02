@@ -41,6 +41,7 @@ import org.apache.spark.streaming.api.java.JavaStreamingContext;
 
 
 import com.cloudera.dataflow.spark.EvaluationContext;
+import com.cloudera.dataflow.spark.SparkRuntimeContext;
 
 /**
  * Streaming evaluation context helps to handle streaming.
@@ -183,6 +184,11 @@ public class StreamingEvaluationContext extends EvaluationContext {
   @Override
   protected JavaSparkContext getSparkContext() {
     return super.getSparkContext();
+  }
+
+  @Override
+  protected SparkRuntimeContext getRuntimeContext() {
+    return super.getRuntimeContext();
   }
 
   @Override

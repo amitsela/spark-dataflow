@@ -139,7 +139,7 @@ public class EvaluationContext implements EvaluationResult {
     return pipeline;
   }
 
-  SparkRuntimeContext getRuntimeContext() {
+  protected SparkRuntimeContext getRuntimeContext() {
     return runtime;
   }
 
