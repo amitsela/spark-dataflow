@@ -59,7 +59,7 @@ public final class CreateStream<T> {
     public PCollection<T> apply(PInput input) {
       // Spark streaming micro batches are bounded by default
       return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-              WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
+          WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
     }
   }
 

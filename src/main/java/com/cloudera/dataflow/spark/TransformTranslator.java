@@ -793,7 +793,7 @@ public final class TransformTranslator {
 
     @Override
     public TransformEvaluator<? extends PTransform<?, ?>> translate(
-            Class<? extends PTransform<?, ?>> clazz) {
+        Class<? extends PTransform<?, ?>> clazz) {
       return getTransformEvaluator(clazz);
     }
   }

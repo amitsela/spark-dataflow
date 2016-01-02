@@ -53,9 +53,8 @@ public class StreamingEvaluationContext extends EvaluationContext {
   private final Map<PValue, DStreamHolder<?>> pstreams = new LinkedHashMap<>();
   private final Set<DStreamHolder<?>> leafStreams = new LinkedHashSet<>();
 
-  public StreamingEvaluationContext(JavaSparkContext jsc,
-                                    Pipeline pipeline,
-                                    JavaStreamingContext jssc, long timeout) {
+  public StreamingEvaluationContext(JavaSparkContext jsc, Pipeline pipeline,
+      JavaStreamingContext jssc, long timeout) {
     super(jsc, pipeline);
     this.jssc = jssc;
     this.timeout = timeout;
@@ -98,7 +97,7 @@ public class StreamingEvaluationContext extends EvaluationContext {
   }
 
   public <T> void setDStreamFromQueue(PTransform<?, ?> transform, Iterable<Iterable<T>> values,
-                                      Coder<T> coder) {
+      Coder<T> coder) {
     pstreams.put((PValue) getOutput(transform), new DStreamHolder<>(values, coder));
   }
 
@@ -209,7 +208,7 @@ public class StreamingEvaluationContext extends EvaluationContext {
 
   @Override
   protected <T> void setOutputRDDFromValues(PTransform<?, ?> transform, Iterable<T> values,
-                                            Coder<T> coder) {
+      Coder<T> coder) {
     super.setOutputRDDFromValues(transform, values, coder);
   }
 

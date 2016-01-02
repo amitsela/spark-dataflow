@@ -51,9 +51,9 @@ public final class SocketIO {
 
       Unbound(String host, Integer port) {
         Preconditions.checkNotNull(host,
-                "need to set the host of a SocketIO.Read transform");
+             "need to set the host of a SocketIO.Read transform");
         Preconditions.checkNotNull(port,
-                "need to set the port of a SocketIO.Read transform");
+            "need to set the port of a SocketIO.Read transform");
         this.host = host;
         this.port = port;
       }
@@ -71,7 +71,7 @@ public final class SocketIO {
       public PCollection<String> apply(PInput input) {
         // Spark streaming micro batches are bounded by default
         return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-                WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
+            WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
       }
     }
 

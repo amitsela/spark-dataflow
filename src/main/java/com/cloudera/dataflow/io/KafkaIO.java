@@ -73,17 +73,17 @@ public final class KafkaIO {
               Class<? extends Decoder<V>> valueDecoder, Class<K> key,
               Class<V> value, Set<String> topics, Map<String, String> kafkaParams) {
         Preconditions.checkNotNull(keyDecoder,
-                "need to set the key decoder class of a KafkaIO.Read transform");
+            "need to set the key decoder class of a KafkaIO.Read transform");
         Preconditions.checkNotNull(valueDecoder,
-                "need to set the value decoder class of a KafkaIO.Read transform");
+            "need to set the value decoder class of a KafkaIO.Read transform");
         Preconditions.checkNotNull(key,
-                "need to set the key class of aKafkaIO.Read transform");
+            "need to set the key class of aKafkaIO.Read transform");
         Preconditions.checkNotNull(value,
-                "need to set the value class of a KafkaIO.Read transform");
+            "need to set the value class of a KafkaIO.Read transform");
         Preconditions.checkNotNull(topics,
-                "need to set the topics of a KafkaIO.Read transform");
+            "need to set the topics of a KafkaIO.Read transform");
         Preconditions.checkNotNull(kafkaParams,
-                "need to set the kafkaParams of a KafkaIO.Read transform");
+            "need to set the kafkaParams of a KafkaIO.Read transform");
         this.keyDecoderClass = keyDecoder;
         this.valueDecoderClass = valueDecoder;
         this.keyClass = key;
@@ -120,7 +120,7 @@ public final class KafkaIO {
       public PCollection<KV<K, V>> apply(PInput input) {
         // Spark streaming micro batches are bounded by default
         return PCollection.createPrimitiveOutputInternal(input.getPipeline(),
-                WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
+            WindowingStrategy.globalDefault(), PCollection.IsBounded.UNBOUNDED);
       }
     }
 

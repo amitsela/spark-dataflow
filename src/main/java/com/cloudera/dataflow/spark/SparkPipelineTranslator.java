@@ -23,7 +23,5 @@ public interface SparkPipelineTranslator {
 
   boolean hasTranslation(Class<? extends PTransform<?, ?>> clazz);
 
-  TransformEvaluator<? extends PTransform<?, ?>> translate(
-          Class<? extends PTransform<?, ?>>
-                  clazz);
+  TransformEvaluator<? extends PTransform<?, ?>> translate(Class<? extends PTransform<?, ?>> clazz);
 }
