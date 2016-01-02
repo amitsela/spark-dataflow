@@ -24,6 +24,7 @@ import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
 import com.google.cloud.dataflow.sdk.transforms.windowing.FixedWindows;
 import com.google.cloud.dataflow.sdk.transforms.windowing.GlobalWindows;
+import com.google.cloud.dataflow.sdk.transforms.windowing.SlidingWindows;
 import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
 import com.google.cloud.dataflow.sdk.transforms.windowing.WindowFn;
 import com.google.cloud.dataflow.sdk.values.PInput;
@@ -188,6 +189,8 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
   }
 
   private static final class StreamingWindowPipelineDetector implements Pipeline.PipelineVisitor {
+    // Currently, Spark streaming recommends batches no smaller then 500 msec
+    private static final Duration SPARK_MIN_WINDOW = Durations.milliseconds(500);
 
     private boolean windowing;
     private Duration batchDuration;
@@ -242,9 +245,7 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       doVisitTransform(node);
     }
 
-    //TODO: ideally we should look for the first FixedWindows after UNBOUNDED PInput
-    // and choose it as the batchInterval. In case of more then one UNBOUNDED PInput
-    // all FixedWindows/batchIntervals should match so we need to enforce that as well
+    // Use the smallest window (fixed or sliding) as Spark streaming's batch duration
     private <PT extends PTransform<? super PInput, POutput>>
     void doVisitTransform(TransformTreeNode node) {
       @SuppressWarnings("unchecked")
@@ -254,9 +255,14 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       if (transformClass.isAssignableFrom(Window.Bound.class)) {
         WindowFn<?, ?> windowFn = TransformTranslator.WINDOW_FG.get("windowFn", transform);
         if (windowFn instanceof FixedWindows) {
-          org.joda.time.Duration size = ((FixedWindows) windowFn).getSize();
-          batchDuration = Durations.milliseconds(size.getMillis());
-          windowing = true;
+          setBatchDuration(((FixedWindows) windowFn).getSize());
+        } else if (windowFn instanceof SlidingWindows) {
+          if (((SlidingWindows) windowFn).getOffset().getMillis() > 0) {
+            throw new UnsupportedOperationException("Spark does not support window offsets");
+          }
+          // Sliding window size might as well set the batch duration. Applying the transformation
+          // will add the "slide"
+          setBatchDuration(((SlidingWindows) windowFn).getSize());
         } else if (!(windowFn instanceof GlobalWindows)) {
           throw new IllegalStateException("Windowing function not supported: " + windowFn);
         }
@@ -265,6 +271,21 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
 
     @Override
     public void visitValue(PValue pvalue, TransformTreeNode node) {
+    }
+
+    private void setBatchDuration(org.joda.time.Duration duration) {
+      Long durationMillis = duration.getMillis();
+      // validate window size
+      if (durationMillis < SPARK_MIN_WINDOW.milliseconds()) {
+        throw new IllegalArgumentException("Windowing of size " + durationMillis +
+            "msec is not supported!");
+      }
+      // choose the smallest duration to be Spark's batch duration, larger ones will be handled
+      // as window functions  over the batched-stream
+      if (!windowing || this.batchDuration.milliseconds() > durationMillis) {
+        this.batchDuration = Durations.milliseconds(durationMillis);
+      }
+      windowing = true;
     }
 
     public boolean isWindowing() {
