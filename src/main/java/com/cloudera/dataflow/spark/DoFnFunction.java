@@ -31,7 +31,7 @@ import org.apache.spark.api.java.function.FlatMapFunction;
  * @param <I> Input element type.
  * @param <O> Output element type.
  */
-class DoFnFunction<I, O> implements FlatMapFunction<Iterator<WindowedValue<I>>,
+public class DoFnFunction<I, O> implements FlatMapFunction<Iterator<WindowedValue<I>>,
     WindowedValue<O>> {
   private final DoFn<I, O> mFunction;
   private final SparkRuntimeContext mRuntimeContext;
@@ -42,7 +42,7 @@ class DoFnFunction<I, O> implements FlatMapFunction<Iterator<WindowedValue<I>>,
    * @param runtime    Runtime to apply function in.
    * @param sideInputs Side inputs used in DoFunction.
    */
-  DoFnFunction(DoFn<I, O> fn,
+  public DoFnFunction(DoFn<I, O> fn,
                SparkRuntimeContext runtime,
                Map<TupleTag<?>, BroadcastHelper<?>> sideInputs) {
     this.mFunction = fn;
