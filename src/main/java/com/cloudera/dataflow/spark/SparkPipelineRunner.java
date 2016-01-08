@@ -20,13 +20,7 @@ import com.google.cloud.dataflow.sdk.options.PipelineOptions;
 import com.google.cloud.dataflow.sdk.options.PipelineOptionsValidator;
 import com.google.cloud.dataflow.sdk.runners.PipelineRunner;
 import com.google.cloud.dataflow.sdk.runners.TransformTreeNode;
-import com.google.cloud.dataflow.sdk.transforms.AppliedPTransform;
 import com.google.cloud.dataflow.sdk.transforms.PTransform;
-import com.google.cloud.dataflow.sdk.transforms.windowing.FixedWindows;
-import com.google.cloud.dataflow.sdk.transforms.windowing.GlobalWindows;
-import com.google.cloud.dataflow.sdk.transforms.windowing.SlidingWindows;
-import com.google.cloud.dataflow.sdk.transforms.windowing.Window;
-import com.google.cloud.dataflow.sdk.transforms.windowing.WindowFn;
 import com.google.cloud.dataflow.sdk.values.PInput;
 import com.google.cloud.dataflow.sdk.values.POutput;
 import com.google.cloud.dataflow.sdk.values.PValue;
@@ -34,7 +28,6 @@ import com.google.cloud.dataflow.sdk.values.PValue;
 import org.apache.spark.SparkException;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.streaming.Duration;
-import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import com.cloudera.dataflow.spark.streaming.SparkStreamingPipelineOptions;
 import com.cloudera.dataflow.spark.streaming.StreamingEvaluationContext;
 import com.cloudera.dataflow.spark.streaming.StreamingTransformTranslator;
+import com.cloudera.dataflow.spark.streaming.StreamingWindowPipelineDetector;
 
 /**
  * The SparkPipelineRunner translate operations defined on a pipeline to a representation
@@ -130,9 +124,11 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
               .getSparkMaster(), mOptions.getAppName());
 
       if (mOptions.isStreaming()) {
+        SparkPipelineTranslator translator =
+                new StreamingTransformTranslator.Translator(new TransformTranslator.Translator());
         // if streaming - fixed window should be defined on all UNBOUNDED inputs
         StreamingWindowPipelineDetector streamingWindowPipelineDetector =
-            new StreamingWindowPipelineDetector();
+            new StreamingWindowPipelineDetector(translator);
         pipeline.traverseTopologically(streamingWindowPipelineDetector);
         if (!streamingWindowPipelineDetector.isWindowing()) {
           throw new IllegalStateException("Spark streaming pipeline must be windowed!");
@@ -142,9 +138,8 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
         LOG.info("Setting Spark streaming batchInterval to " +
             batchInterval.milliseconds() + "msec");
         EvaluationContext ctxt = createStreamingEvaluationContext(jsc, pipeline, batchInterval);
-        SparkPipelineTranslator translator =
-            new StreamingTransformTranslator.Translator(new TransformTranslator.Translator());
-        pipeline.traverseTopologically(new Evaluator(ctxt, translator));
+
+        pipeline.traverseTopologically(new SparkPipelineEvaluator(ctxt, translator));
         ctxt.computeOutputs();
 
         LOG.info("Streaming pipeline construction complete. Starting execution..");
@@ -154,7 +149,7 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       } else {
         EvaluationContext ctxt = new EvaluationContext(jsc, pipeline);
         SparkPipelineTranslator translator = new TransformTranslator.Translator();
-        pipeline.traverseTopologically(new Evaluator(ctxt, translator));
+        pipeline.traverseTopologically(new SparkPipelineEvaluator(ctxt, translator));
         ctxt.computeOutputs();
 
         LOG.info("Pipeline execution complete.");
@@ -188,128 +183,18 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
     return new StreamingEvaluationContext(jsc, pipeline, jssc, streamingOptions.getTimeout());
   }
 
-  private static final class StreamingWindowPipelineDetector implements Pipeline.PipelineVisitor {
-    // Currently, Spark streaming recommends batches no smaller then 500 msec
-    private static final Duration SPARK_MIN_WINDOW = Durations.milliseconds(500);
+  public abstract static class Evaluator implements Pipeline.PipelineVisitor {
+    protected static final Logger LOG = LoggerFactory.getLogger(Evaluator.class);
 
-    private boolean windowing;
-    private Duration batchDuration;
+    protected final SparkPipelineTranslator translator;
 
-    // Set upon entering a composite node which can be directly mapped to a single
-    // TransformEvaluator.
-    private TransformTreeNode currentTranslatedCompositeNode;
-
-    /**
-     * If true, we're currently inside a subtree of a composite node which directly maps to a
-     * single TransformEvaluator; children nodes are ignored, and upon post-visiting the translated
-     * composite node, the associated TransformEvaluator will be visited.
-     */
-    private boolean inTranslatedCompositeNode() {
-      return currentTranslatedCompositeNode != null;
-    }
-
-    @Override
-    public void enterCompositeTransform(TransformTreeNode node) {
-      if (inTranslatedCompositeNode()) {
-        return;
-      }
-
-      if (node.getTransform() != null
-              && TransformTranslator.hasTransformEvaluator(node.getTransform().getClass())) {
-        LOG.info("Entering directly-translatable composite transform: '{}'",
-                node.getFullName());
-        LOG.debug("Composite transform class: '{}'", node.getTransform().getClass());
-        currentTranslatedCompositeNode = node;
-      }
-    }
-
-    @Override
-    public void leaveCompositeTransform(TransformTreeNode node) {
-      // NB: We depend on enterCompositeTransform and leaveCompositeTransform providing 'node'
-      // objects for which Object.equals() returns true iff they are the same logical node
-      // within the tree.
-      if (inTranslatedCompositeNode() && node.equals(currentTranslatedCompositeNode)) {
-        LOG.info("Post-visiting directly-translatable composite transform: '{}'",
-                node.getFullName());
-        doVisitTransform(node);
-        currentTranslatedCompositeNode = null;
-      }
-    }
-
-    @Override
-    public void visitTransform(TransformTreeNode node) {
-      if (inTranslatedCompositeNode()) {
-        LOG.info("Skipping '{}'; already in composite transform.", node.getFullName());
-        return;
-      }
-      doVisitTransform(node);
-    }
-
-    // Use the smallest window (fixed or sliding) as Spark streaming's batch duration
-    private <PT extends PTransform<? super PInput, POutput>>
-    void doVisitTransform(TransformTreeNode node) {
-      @SuppressWarnings("unchecked")
-      PT transform = (PT) node.getTransform();
-      @SuppressWarnings("unchecked")
-      Class<PT> transformClass = (Class<PT>) (Class<?>) transform.getClass();
-      if (transformClass.isAssignableFrom(Window.Bound.class)) {
-        WindowFn<?, ?> windowFn = TransformTranslator.WINDOW_FG.get("windowFn", transform);
-        if (windowFn instanceof FixedWindows) {
-          setBatchDuration(((FixedWindows) windowFn).getSize());
-        } else if (windowFn instanceof SlidingWindows) {
-          if (((SlidingWindows) windowFn).getOffset().getMillis() > 0) {
-            throw new UnsupportedOperationException("Spark does not support window offsets");
-          }
-          // Sliding window size might as well set the batch duration. Applying the transformation
-          // will add the "slide"
-          setBatchDuration(((SlidingWindows) windowFn).getSize());
-        } else if (!(windowFn instanceof GlobalWindows)) {
-          throw new IllegalStateException("Windowing function not supported: " + windowFn);
-        }
-      }
-    }
-
-    @Override
-    public void visitValue(PValue pvalue, TransformTreeNode node) {
-    }
-
-    private void setBatchDuration(org.joda.time.Duration duration) {
-      Long durationMillis = duration.getMillis();
-      // validate window size
-      if (durationMillis < SPARK_MIN_WINDOW.milliseconds()) {
-        throw new IllegalArgumentException("Windowing of size " + durationMillis +
-            "msec is not supported!");
-      }
-      // choose the smallest duration to be Spark's batch duration, larger ones will be handled
-      // as window functions  over the batched-stream
-      if (!windowing || this.batchDuration.milliseconds() > durationMillis) {
-        this.batchDuration = Durations.milliseconds(durationMillis);
-      }
-      windowing = true;
-    }
-
-    public boolean isWindowing() {
-      return windowing;
-    }
-
-    public Duration getBatchDuration() {
-      return batchDuration;
-    }
-  }
-
-  private static final class Evaluator implements Pipeline.PipelineVisitor {
-
-    private final EvaluationContext ctxt;
-    private final SparkPipelineTranslator translator;
-
-    // Set upon entering a composite node which can be directly mapped to a single
-    // TransformEvaluator.
-    private TransformTreeNode currentTranslatedCompositeNode;
-
-    private Evaluator(EvaluationContext ctxt, SparkPipelineTranslator translator) {
-      this.ctxt = ctxt;
+    protected Evaluator(SparkPipelineTranslator translator) {
       this.translator = translator;
     }
+
+    // Set upon entering a composite node which can be directly mapped to a single
+    // TransformEvaluator.
+    private TransformTreeNode currentTranslatedCompositeNode;
 
     /**
      * If true, we're currently inside a subtree of a composite node which directly maps to a
@@ -360,25 +245,11 @@ public final class SparkPipelineRunner extends PipelineRunner<EvaluationResult> 
       doVisitTransform(node);
     }
 
-    private <PT extends PTransform<? super PInput, POutput>>
-    void doVisitTransform(TransformTreeNode node) {
-      @SuppressWarnings("unchecked")
-      PT transform = (PT) node.getTransform();
-      @SuppressWarnings("unchecked")
-      Class<PT> transformClass = (Class<PT>) (Class<?>) transform.getClass();
-      @SuppressWarnings("unchecked") TransformEvaluator<PT> evaluator =
-              (TransformEvaluator<PT>) translator.translate(transformClass);
-      LOG.info("Evaluating {}", transform);
-      AppliedPTransform<PInput, POutput, PT> appliedTransform =
-              AppliedPTransform.of(node.getFullName(), node.getInput(), node.getOutput(),
-                      transform);
-      ctxt.setCurrentTransform(appliedTransform);
-      evaluator.evaluate(transform, ctxt);
-      ctxt.setCurrentTransform(null);
-    }
+    protected abstract <PT extends PTransform<? super PInput, POutput>> void
+        doVisitTransform(TransformTreeNode node);
 
     @Override
-    public void visitValue(PValue pvalue, TransformTreeNode node) {
+    public void visitValue(PValue value, TransformTreeNode producer) {
     }
   }
 }
