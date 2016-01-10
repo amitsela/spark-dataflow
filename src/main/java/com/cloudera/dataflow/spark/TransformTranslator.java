@@ -256,19 +256,35 @@ public final class TransformTranslator {
         // require the key in addition to the VI's and VA's being merged/accumulated. Once Spark
         // provides a way to include keys in the arguments of combine/merge functions, we won't
         // need to duplicate the keys anymore.
-        JavaPairRDD<K, KV<K, VI>> inRddDuplicatedKeyPair =
-            inRdd.map(WindowingHelpers.<KV<K, VI>>unwindowFunction()).mapToPair(
-            new PairFunction<KV<K, VI>, K, KV<K, VI>>() {
-              @Override
-              public Tuple2<K, KV<K, VI>> call(KV<K, VI> kv) {
-                return new Tuple2<>(kv.getKey(), kv);
-              }
-            });
+
+        // Key has to bw windowed in order to group by window as well
+        JavaPairRDD<WindowedValue<K>, WindowedValue<KV<K, VI>>> inRddDuplicatedKeyPair =
+            inRdd.mapToPair(
+                new PairFunction<WindowedValue<KV<K, VI>>, WindowedValue<K>,
+                    WindowedValue<KV<K, VI>>>() {
+                  @Override
+                  public Tuple2<WindowedValue<K>,
+                      WindowedValue<KV<K, VI>>> call(WindowedValue<KV<K, VI>> kv) {
+                    WindowedValue<K> wk = WindowedValue.of(kv.getValue().getKey(),
+                        kv.getTimestamp(), kv.getWindows(), kv.getPane());
+                    return new Tuple2<>(wk, kv);
+                  }
+                });
+        //-- windowed coders
+        final WindowedValue.FullWindowedValueCoder<K> wkCoder =
+                WindowedValue.FullWindowedValueCoder.of(keyCoder,
+                context.getInput(transform).getWindowingStrategy().getWindowFn().windowCoder());
+        final WindowedValue.FullWindowedValueCoder<KV<K, VI>> wkviCoder =
+                WindowedValue.FullWindowedValueCoder.of(kviCoder,
+                context.getInput(transform).getWindowingStrategy().getWindowFn().windowCoder());
+        final WindowedValue.FullWindowedValueCoder<KV<K, VA>> wkvaCoder =
+                WindowedValue.FullWindowedValueCoder.of(kvaCoder,
+                context.getInput(transform).getWindowingStrategy().getWindowFn().windowCoder());
 
         // Use coders to convert objects in the PCollection to byte arrays, so they
         // can be transferred over the network for the shuffle.
         JavaPairRDD<ByteArray, byte[]> inRddDuplicatedKeyPairBytes = inRddDuplicatedKeyPair
-            .mapToPair(CoderHelpers.toByteFunction(keyCoder, kviCoder));
+            .mapToPair(CoderHelpers.toByteFunction(wkCoder, wkviCoder));
 
         // The output of combineByKey will be "VA" (accumulator) types rather than "VO" (final
         // output types) since Combine.CombineFn only provides ways to merge VAs, and no way
@@ -278,47 +294,67 @@ public final class TransformTranslator {
             new Function</*KV<K, VI>*/ byte[], /*KV<K, VA>*/ byte[]>() {
               @Override
               public /*KV<K, VA>*/ byte[] call(/*KV<K, VI>*/ byte[] input) {
-                KV<K, VI> kvi = CoderHelpers.fromByteArray(input, kviCoder);
-                VA va = keyed.createAccumulator(kvi.getKey());
-                va = keyed.addInput(kvi.getKey(), va, kvi.getValue());
-                return CoderHelpers.toByteArray(KV.of(kvi.getKey(), va), kvaCoder);
+                WindowedValue<KV<K, VI>> wkvi = CoderHelpers.fromByteArray(input, wkviCoder);
+                VA va = keyed.createAccumulator(wkvi.getValue().getKey());
+                va = keyed.addInput(wkvi.getValue().getKey(), va, wkvi.getValue().getValue());
+                WindowedValue<KV<K, VA>> wkva =
+                    WindowedValue.of(KV.of(wkvi.getValue().getKey(), va), wkvi.getTimestamp(),
+                    wkvi.getWindows(), wkvi.getPane());
+                return CoderHelpers.toByteArray(wkva, wkvaCoder);
               }
             },
             new Function2</*KV<K, VA>*/ byte[], /*KV<K, VI>*/ byte[], /*KV<K, VA>*/ byte[]>() {
               @Override
               public /*KV<K, VA>*/ byte[] call(/*KV<K, VA>*/ byte[] acc,
                   /*KV<K, VI>*/ byte[] input) {
-                KV<K, VA> kva = CoderHelpers.fromByteArray(acc, kvaCoder);
-                KV<K, VI> kvi = CoderHelpers.fromByteArray(input, kviCoder);
-                VA va = keyed.addInput(kva.getKey(), kva.getValue(), kvi.getValue());
-                kva = KV.of(kva.getKey(), va);
-                return CoderHelpers.toByteArray(KV.of(kva.getKey(), kva.getValue()), kvaCoder);
+                WindowedValue<KV<K, VA>> wkva = CoderHelpers.fromByteArray(acc, wkvaCoder);
+                WindowedValue<KV<K, VI>> wkvi = CoderHelpers.fromByteArray(input, wkviCoder);
+                VA va = keyed.addInput(wkva.getValue().getKey(), wkva.getValue().getValue(),
+                    wkvi.getValue().getValue());
+                wkva = WindowedValue.of(KV.of(wkva.getValue().getKey(), va), wkva.getTimestamp(),
+                    wkva.getWindows(), wkva.getPane());
+                return CoderHelpers.toByteArray(wkva, wkvaCoder);
               }
             },
             new Function2</*KV<K, VA>*/ byte[], /*KV<K, VA>*/ byte[], /*KV<K, VA>*/ byte[]>() {
               @Override
               public /*KV<K, VA>*/ byte[] call(/*KV<K, VA>*/ byte[] acc1,
                   /*KV<K, VA>*/ byte[] acc2) {
-                KV<K, VA> kva1 = CoderHelpers.fromByteArray(acc1, kvaCoder);
-                KV<K, VA> kva2 = CoderHelpers.fromByteArray(acc2, kvaCoder);
-                VA va = keyed.mergeAccumulators(kva1.getKey(),
+                WindowedValue<KV<K, VA>> wkva1 = CoderHelpers.fromByteArray(acc1, wkvaCoder);
+                WindowedValue<KV<K, VA>> wkva2 = CoderHelpers.fromByteArray(acc2, wkvaCoder);
+                VA va = keyed.mergeAccumulators(wkva1.getValue().getKey(),
                     // don't use Guava's ImmutableList.of as values may be null
-                    Collections.unmodifiableList(Arrays.asList(kva1.getValue(), kva2.getValue())));
-                return CoderHelpers.toByteArray(KV.of(kva1.getKey(), va), kvaCoder);
+                    Collections.unmodifiableList(Arrays.asList(wkva1.getValue().getValue(),
+                    wkva2.getValue().getValue())));
+                WindowedValue<KV<K, VA>> wkva = WindowedValue.of(KV.of(wkva1.getValue().getKey(),
+                    va), wkva1.getTimestamp(), wkva1.getWindows(), wkva1.getPane());
+                return CoderHelpers.toByteArray(wkva, wkvaCoder);
               }
             });
 
-        JavaPairRDD<K, VO> extracted = accumulatedBytes
-            .mapToPair(CoderHelpers.fromByteFunction(keyCoder, kvaCoder))
+        JavaPairRDD<WindowedValue<K>, WindowedValue<VO>> extracted = accumulatedBytes
+            .mapToPair(CoderHelpers.fromByteFunction(wkCoder, wkvaCoder))
             .mapValues(
-                new Function<KV<K, VA>, VO>() {
+                new Function<WindowedValue<KV<K, VA>>, WindowedValue<VO>>() {
                   @Override
-                  public VO call(KV<K, VA> acc) {
-                    return keyed.extractOutput(acc.getKey(), acc.getValue());
+                  public WindowedValue<VO> call(WindowedValue<KV<K, VA>> acc) {
+                    return WindowedValue.of(keyed.extractOutput(acc.getValue().getKey(),
+                        acc.getValue().getValue()), acc.getTimestamp(),
+                        acc.getWindows(), acc.getPane());
                   }
                 });
+
         context.setOutputRDD(transform,
-            fromPair(extracted).map(WindowingHelpers.<KV<K, VO>>windowFunction()));
+            fromPair(extracted)
+            .map(new Function<KV<WindowedValue<K>, WindowedValue<VO>>, WindowedValue<KV<K, VO>>>() {
+              @Override
+              public WindowedValue<KV<K, VO>> call(KV<WindowedValue<K>, WindowedValue<VO>> kwvo)
+                  throws Exception {
+                WindowedValue<VO> wvo = kwvo.getValue();
+                KV<K, VO> kvo = KV.of(kwvo.getKey().getValue(), wvo.getValue());
+                return WindowedValue.of(kvo, wvo.getTimestamp(), wvo.getWindows(), wvo.getPane());
+              }
+            }));
       }
     };
   }
@@ -726,7 +762,7 @@ public final class TransformTranslator {
     EVALUATORS.put(GroupByKey.GroupByKeyOnly.class, gbk());
     EVALUATORS.put(Combine.GroupedValues.class, grouped());
     EVALUATORS.put(Combine.Globally.class, combineGlobally());
-//    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
+    EVALUATORS.put(Combine.PerKey.class, combinePerKey());
     EVALUATORS.put(Flatten.FlattenPCollectionList.class, flattenPColl());
     EVALUATORS.put(Create.Values.class, create());
     EVALUATORS.put(View.AsSingleton.class, viewAsSingleton());
